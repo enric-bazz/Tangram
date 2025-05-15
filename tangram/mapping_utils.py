@@ -2,12 +2,12 @@
     Mapping helpers
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import torch
-import logging
-
 from scipy.sparse.csc import csc_matrix
 from scipy.sparse.csr import csr_matrix
 
@@ -263,12 +263,13 @@ def map_cells_to_space(
     if type(density_prior) is np.ndarray:
         d_str = "customized"
 
-    if density_prior == "rna_count_based":
-        density_prior = adata_sp.obs["rna_count_based_density"]
+    else:
+        if density_prior == "rna_count_based":
+            density_prior = adata_sp.obs["rna_count_based_density"]
 
-    # define density_prior if 'uniform' is passed to the density_prior argument:
-    elif density_prior == "uniform":
-        density_prior = adata_sp.obs["uniform_density"]
+        # define density_prior if 'uniform' is passed to the density_prior argument:
+        elif density_prior == "uniform":
+            density_prior = adata_sp.obs["uniform_density"]
 
     if mode == "cells":
         d = density_prior
