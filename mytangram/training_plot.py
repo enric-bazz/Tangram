@@ -83,3 +83,4 @@ def plot_filter_weights(adata_map):
     plt.ylabel('Cell')
     plt.title('Sigmoid weights over epochs')
     plt.show()
+    plt.gca().set_aspect(0.1)
