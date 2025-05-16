@@ -43,3 +43,7 @@ share/python-wheels/
 # ignore coverage report
 *.coverage
 *.coverage.*
+
+# Ignore virtualenvironm
+.venv/
+venv/
