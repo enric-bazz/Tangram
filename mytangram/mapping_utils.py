@@ -1,7 +1,3 @@
-"""
-    Mapping helpers
-"""
-
 import logging
 
 import numpy as np
@@ -11,15 +7,11 @@ import torch
 from scipy.sparse.csc import csc_matrix
 from scipy.sparse.csr import csr_matrix
 
+from tangram import utils as ut
 from . import mapping_optimizer as mo
-from . import utils as ut
-
-# from torch.nn.functional import cosine_similarity
-
-logging.getLogger().setLevel(logging.INFO)
 
 
-def pp_adatas(adata_sc, adata_sp, genes=None, gene_to_lowercase = True):
+def pp_adatas(adata_sc, adata_sp, genes=None, gene_to_lowercase=True):
     """
     Pre-process AnnDatas so that they can be mapped. Specifically:
     - Remove genes that all entries are zero
@@ -30,9 +22,9 @@ def pp_adatas(adata_sc, adata_sp, genes=None, gene_to_lowercase = True):
         adata_sc (AnnData): single cell data
         adata_sp (AnnData): spatial expression data
         genes (List): Optional. List of genes to use. If `None`, all genes are used.
-    
+
     Returns:
-        update adata_sc by creating `uns` `training_genes` `overlap_genes` fields 
+        update adata_sc by creating `uns` `training_genes` `overlap_genes` fields
         update adata_sp by creating `uns` `training_genes` `overlap_genes` fields and creating `obs` `rna_count_based_density` & `uniform_density` field
     """
 
@@ -43,7 +35,7 @@ def pp_adatas(adata_sc, adata_sp, genes=None, gene_to_lowercase = True):
     if genes is None:
         # Use all genes
         genes = adata_sc.var.index
-               
+
     # put all var index to lower case to align
     if gene_to_lowercase:
         adata_sc.var.index = [g.lower() for g in adata_sc.var.index]
@@ -52,7 +44,6 @@ def pp_adatas(adata_sc, adata_sp, genes=None, gene_to_lowercase = True):
 
     adata_sc.var_names_make_unique()
     adata_sp.var_names_make_unique()
-    
 
     # Refine `marker_genes` so that they are shared by both adatas
     genes = list(set(genes) & set(adata_sc.var.index) & set(adata_sp.var.index))
@@ -90,13 +81,13 @@ def pp_adatas(adata_sc, adata_sp, genes=None, gene_to_lowercase = True):
     logging.info(
         f"rna count based density prior is calculated and saved in `obs``rna_count_based_density` of the spatial Anndata."
     )
-        
+
 
 def adata_to_cluster_expression(adata, cluster_label, scale=True, add_density=True):
     """
     Convert an AnnData to a new AnnData with cluster expressions. Clusters are based on `cluster_label` in `adata.obs`.  The returned AnnData has an observation for each cluster, with the cluster-level expression equals to the average expression for that cluster.
     All annotations in `adata.obs` except `cluster_label` are discarded in the returned AnnData.
-    
+
     Args:
         adata (AnnData): single cell data
         cluster_label (String): field in `adata.obs` used for aggregating values
@@ -107,60 +98,74 @@ def adata_to_cluster_expression(adata, cluster_label, scale=True, add_density=Tr
         AnnData: aggregated single cell data
 
     """
+    ## Retrieve cell counts-per-cluster Series object (df column) with .value_count()
     try:
         value_counts = adata.obs[cluster_label].value_counts(normalize=True)
     except KeyError as e:
         raise ValueError("Provided label must belong to adata.obs.")
+    # Retrieve unique cell type/clusters labels from Series
     unique_labels = value_counts.index
+    # Build dataframe (one column) of clusters labels (as entries of the df, indexes are int-range)
     new_obs = pd.DataFrame({cluster_label: unique_labels})
+    # Define AnnData object with inherited var (genes) and uns
     adata_ret = sc.AnnData(obs=new_obs, var=adata.var, uns=adata.uns)
 
+    ### Build clusters count matrix as ndarray (no sparsity management at cluster level)
+    # Init array of shape: (number of cluster labels, number of genes)
     X_new = np.empty((len(unique_labels), adata.shape[1]))
+
     for index, l in enumerate(unique_labels):
+        # Assign row entries
         if not scale:
+            # Mean gene expression values over adata.obs selected by cluster label (shape: (1, n_genes))
             X_new[index] = adata[adata.obs[cluster_label] == l].X.mean(axis=0)
         else:
+            # Summation of gene expression values over adata.obs selected by cluster label (shape: (1, n_genes))
             X_new[index] = adata[adata.obs[cluster_label] == l].X.sum(axis=0)
+    # Assign filled expression values ndarray
     adata_ret.X = X_new
 
+    # Add clusters density values to adata object:
+    # densities are computed above as relative frequencies of clusters with .value_count()
     if add_density:
         adata_ret.obs["cluster_density"] = adata_ret.obs[cluster_label].map(
             lambda i: value_counts[i]
         )
+    # The syntax exploits a lambda inline function to map density values to the corresponding row in the anndata object
 
     return adata_ret
 
 
 def map_cells_to_space(
-    adata_sc,
-    adata_sp,
-    cv_train_genes=None,
-    cluster_label=None,
-    mode="cells",
-    device="cpu",
-    learning_rate=0.1,
-    num_epochs=1000,
-    scale=True,
-    lambda_d=0,
-    lambda_g1=1,
-    lambda_g2=0,
-    lambda_r=0,
-    lambda_count=1,
-    lambda_f_reg=1,
-    target_count=None,
-    random_state=None,
-    verbose=True,
-    density_prior='rna_count_based',
+        adata_sc,
+        adata_sp,
+        cv_train_genes=None,
+        cluster_label=None,
+        mode="cells",
+        device="cpu",
+        learning_rate=0.1,
+        num_epochs=1000,
+        scale=True,
+        lambda_d=0,
+        lambda_g1=1,
+        lambda_g2=0,
+        lambda_r=0,
+        lambda_count=1,
+        lambda_f_reg=1,
+        target_count=None,
+        random_state=None,
+        verbose=True,
+        density_prior='rna_count_based',
 ):
     """
     Map single cell data (`adata_sc`) on spatial data (`adata_sp`).
-    
+
     Args:
         adata_sc (AnnData): single cell data
         adata_sp (AnnData): gene spatial data
         cv_train_genes (list): Optional. Training gene list. Default is None.
         cluster_label (str): Optional. Field in `adata_sc.obs` used for aggregating single cell data. Only valid for `mode=clusters`.
-        mode (str): Optional. Tangram mapping mode. Currently supported: 'cell', 'clusters', 'constrained'. Default is 'cell'.
+        mode (str): Optional. Tangram mapping mode. Currently supported: 'cell', 'constrained', 'cluster'. Default is 'cell'.
         device (string or torch.device): Optional. Default is 'cpu'.
         learning_rate (float): Optional. Learning rate for the optimizer. Default is 0.1.
         num_epochs (int): Optional. Number of epochs. Default is 1000.
@@ -168,7 +173,7 @@ def map_cells_to_space(
         lambda_d (float): Optional. Hyperparameter for the density term of the optimizer. Default is 0.
         lambda_g1 (float): Optional. Hyperparameter for the gene-voxel similarity term of the optimizer. Default is 1.
         lambda_g2 (float): Optional. Hyperparameter for the voxel-gene similarity term of the optimizer. Default is 0.
-        lambda_r (float): Optional. Strength of entropy regularizer. An higher entropy promotes probabilities of each cell peaked over a narrow portion of space. lambda_r = 0 corresponds to no entropy regularizer. Default is 0.
+        lambda_r (float): Optional. Strength of entropy regularizer. A higher entropy promotes probabilities of each cell peaked over a narrow portion of space. lambda_r = 0 corresponds to no entropy regularizer. Default is 0.
         lambda_count (float): Optional. Regularizer for the count term. Default is 1. Only valid when mode == 'constrained'
         lambda_f_reg (float): Optional. Regularizer for the filter, which promotes Boolean values (0s and 1s) in the filter. Only valid when mode == 'constrained'. Default is 1.
         target_count (int): Optional. The number of cells to be filtered. Default is None.
@@ -178,15 +183,16 @@ def map_cells_to_space(
 
     Returns:
         a cell-by-spot AnnData containing the probability of mapping cell i on spot j.
-        The `uns` field of the returned AnnData contains the training genes.
+        The `uns` field of the returned AnnData contains the training genes and the history over epochs of loss terms.
+        if mode = 'constrained', then the history of filter values is also returned.
     """
-
+    ### INPUT Control
     # check invalid values for arguments
     if lambda_g1 == 0:
         raise ValueError("lambda_g1 cannot be 0.")
 
     if (type(density_prior) is str) and (
-        density_prior not in ["rna_count_based", "uniform", None]
+            density_prior not in ["rna_count_based", "uniform", None]
     ):
         raise ValueError("Invalid input for density_prior.")
 
@@ -196,22 +202,26 @@ def map_cells_to_space(
     if lambda_d > 0 and density_prior is None:
         raise ValueError("When lambda_d is set, please define the density_prior.")
 
-    if mode not in ["clusters", "cells", "constrained"]:
-        raise ValueError('Argument "mode" must be "cells", "clusters" or "constrained')
+    if mode not in ["cells", "constrained", "cluster"]:
+        raise ValueError('Argument "mode" must be "cells" or "constrained')
 
     if mode == "clusters" and cluster_label is None:
         raise ValueError("A cluster_label must be specified if mode is 'clusters'.")
 
-    if mode == "constrained" and not all([target_count, lambda_f_reg, lambda_count]):
-        raise ValueError(
-            "target_count, lambda_f_reg and lambda_count must be specified if mode is 'constrained'."
-        )
+    # Default values are set and "target_count is None" is managed appropriately
+    #if mode == "constrained" and not all([target_count, lambda_f_reg, lambda_count]):
+    #    raise ValueError(
+    #        "target_count, lambda_f_reg and lambda_count must be specified if mode is 'constrained'."
+    #    )
 
+    # Compute cluster-level anndata object
     if mode == "clusters":
         adata_sc = adata_to_cluster_expression(
             adata_sc, cluster_label, scale, add_density=True
         )
+    #### perhaps there is a better way of managing cluster mode-specific args like scale, cluster_label
 
+    ### Training Genes
     # Check if training_genes key exist/is valid in adatas.uns
     if not set(["training_genes", "overlap_genes"]).issubset(set(adata_sc.uns.keys())):
         raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
@@ -232,9 +242,10 @@ def map_cells_to_space(
                 "Given training genes list should be subset of two AnnDatas."
             )
 
+    ### INPUT Tensors: allocate them as arrays even if sparse matrices
     logging.info("Allocate tensors for mapping.")
-    # Allocate tensors (AnnData matrix can be sparse or not)
 
+    ## S matrix
     if isinstance(adata_sc.X, csc_matrix) or isinstance(adata_sc.X, csr_matrix):
         S = np.array(adata_sc[:, training_genes].X.toarray(), dtype="float32",)
     elif isinstance(adata_sc.X, np.ndarray):
@@ -244,6 +255,7 @@ def map_cells_to_space(
         logging.error("AnnData X has unrecognized type: {}".format(X_type))
         raise NotImplementedError
 
+    # G matrix
     if isinstance(adata_sp.X, csc_matrix) or isinstance(adata_sp.X, csr_matrix):
         G = np.array(adata_sp[:, training_genes].X.toarray(), dtype="float32")
     elif isinstance(adata_sp.X, np.ndarray):
@@ -253,16 +265,11 @@ def map_cells_to_space(
         logging.error("AnnData X has unrecognized type: {}".format(X_type))
         raise NotImplementedError
 
-    if not S.any(axis=0).all() or not G.any(axis=0).all():
-        raise ValueError("Genes with all zero values detected. Run `pp_adatas()`.")
-
-    d_source = None
-
+    ### Density prior
     # define density_prior if 'rna_count_based' is passed to the density_prior argument:
     d_str = density_prior
     if type(density_prior) is np.ndarray:
         d_str = "customized"
-
     else:
         if density_prior == "rna_count_based":
             density_prior = adata_sp.obs["rna_count_based_density"]
@@ -274,10 +281,8 @@ def map_cells_to_space(
     if mode == "cells":
         d = density_prior
 
-    if mode == "clusters":
-        d_source = np.array(adata_sc.obs["cluster_density"])
-
-    if mode in ["clusters", "constrained"]:
+    # Filter-mode density prior: uniform or input
+    if mode == "constrained":
         if density_prior is None:
             d = adata_sp.obs["uniform_density"]
             d_str = "uniform"
@@ -286,15 +291,23 @@ def map_cells_to_space(
         if lambda_d is None or lambda_d == 0:
             lambda_d = 1
 
+    # Cluster-mode density: density annotated with adata_to_cluster_expression()
+    if mode == "clusters":
+        d_source = np.array(adata_sc.obs["cluster_density"])
+    else:  # cell mode
+        d_source = None
+
     # Choose device
     device = torch.device(device)  # for gpu
 
+    # Set echo
     if verbose:
         print_each = 100
     else:
         print_each = None
 
-    if mode in ["cells", "clusters"]:
+    ### MAPPING no constraint
+    if mode == "cells":
         hyperparameters = {
             "lambda_d": lambda_d,  # KL (ie density) term
             "lambda_g1": lambda_g1,  # gene-voxel cos sim
@@ -303,31 +316,38 @@ def map_cells_to_space(
             "d_source": d_source,
         }
 
+
+
         logging.info(
             "Begin training with {} genes and {} density_prior in {} mode...".format(
                 len(training_genes), d_str, mode
             )
         )
         mapper = mo.Mapper(
-            S=S, G=G, d=d, device=device, random_state=random_state, **hyperparameters,
+            S=S, G=G, d=d, device=device, random_state=random_state, constraint=False, **hyperparameters,
         )
 
-        # TODO `train` should return the loss function
+        # Print out coefficients values
+        msg = []
+        for k in hyperparameters.keys() - "d_source":  # keys are the iterable of a dictionary
+            m = "{}: {}".format(k, hyperparameters[k])  # "{}: {:.3f}" does not work on float (only str)
+            msg.append(m)
+        print("Regularizer coefficients:" + "\n" + str(msg).replace("[", "").replace("]", "").replace("'", ""))
 
         mapping_matrix, training_history = mapper.train(
             learning_rate=learning_rate, num_epochs=num_epochs, print_each=print_each,
         )
 
-    # constrained mode
+        ### MAPPING with coonstraint
     elif mode == "constrained":
         hyperparameters = {
             "lambda_d": lambda_d,  # KL (ie density) term
             "lambda_g1": lambda_g1,  # gene-voxel cos sim
             "lambda_g2": lambda_g2,  # voxel-gene cos sim
             "lambda_r": lambda_r,  # regularizer: penalize entropy
-            "lambda_count": lambda_count,
-            "lambda_f_reg": lambda_f_reg,
-            "target_count": target_count,
+            "lambda_count": lambda_count,  # regularizer: enforce target number of cells
+            "lambda_f_reg": lambda_f_reg,  # regularizer: push sigmoid values to 0,1
+            "target_count": target_count,  # target number of cells
         }
 
         logging.info(
@@ -336,11 +356,18 @@ def map_cells_to_space(
             )
         )
 
-        mapper = mo.MapperConstrained(
-            S=S, G=G, d=d, device=device, random_state=random_state, **hyperparameters,
+        # Print out coefficients values
+        msg = []
+        for k in hyperparameters:
+            m = "{}: {}".format(k, hyperparameters[k])
+            msg.append(m)
+        print("Regularizer coefficients:" + "\n" + str(msg).replace("[", "").replace("]", "").replace("'", ""))
+
+        mapper = mo.Mapper(
+            S=S, G=G, d=d, device=device, random_state=random_state, constraint=True, **hyperparameters,
         )
 
-        mapping_matrix, F_out, training_history = mapper.train(
+        mapping_matrix, F_out, training_history, filter_history = mapper.train(
             learning_rate=learning_rate, num_epochs=num_epochs, print_each=print_each,
         )
 
@@ -369,16 +396,19 @@ def map_cells_to_space(
     ut.annotate_gene_sparsity(adata_sc)
     ut.annotate_gene_sparsity(adata_sp)
     adata_map.uns["train_genes_df"]["sparsity_sc"] = adata_sc[
-        :, training_genes
-    ].var.sparsity
+                                                     :, training_genes
+                                                     ].var.sparsity
     adata_map.uns["train_genes_df"]["sparsity_sp"] = adata_sp[
-        :, training_genes
-    ].var.sparsity
+                                                     :, training_genes
+                                                     ].var.sparsity
     adata_map.uns["train_genes_df"]["sparsity_diff"] = (
-        adata_sp[:, training_genes].var.sparsity
-        - adata_sc[:, training_genes].var.sparsity
+            adata_sp[:, training_genes].var.sparsity
+            - adata_sc[:, training_genes].var.sparsity
     )
 
     adata_map.uns["training_history"] = training_history
+
+    if mode == "constrained":
+        adata_map.uns["filter_history"] = filter_history
 
     return adata_map
