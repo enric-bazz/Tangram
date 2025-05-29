@@ -167,21 +167,21 @@ class Mapper:
 
 
         # Define outputs: each variable corresponds to a term of the loss, re-scaled of the regularizer and turned to list
-        main_loss = (gv_term / self.lambda_g1).tolist()  # not .tolist() to exclude string metadata
+        main_loss = (gv_term).tolist()  # not .tolist() to exclude string metadata
         kl_reg = (
-            (density_term / self.lambda_d).tolist()
+            (density_term).tolist()
             if density_term is not None
             else np.nan
         )  # conditional assignment must return something
-        vg_reg = (vg_term / self.lambda_g2).tolist()
+        vg_reg = (vg_term).tolist()
         if self.constraint:
-            count_reg = (count_term / self.lambda_count).tolist()
-            lambda_f_reg = (f_reg / self.lambda_f_reg).tolist()
+            count_reg = (count_term).tolist()
+            lambda_f_reg = (f_reg).tolist()
         else:
             count_reg = None
             lambda_f_reg = None
 
-        entropy_reg = (regularizer_term / self.lambda_r).tolist()
+        entropy_reg = (regularizer_term).tolist()
 
         # verbose print message
         if verbose:
@@ -297,3 +297,105 @@ class Mapper:
                 return output, F_out, training_history, filter_history
             else:
                 return output, training_history
+
+
+
+'''
+Lightning module for Tangram
+'''
+
+import pytorch_lightning as pl
+import torch.nn as nn
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+
+class MapperLightning(pl.LightningModule):
+    def __init__(
+            self,
+            S,
+            G,
+            d=None,
+            d_source=None,
+            lambda_g1=1.0,
+            lambda_d=0,
+            lambda_g2=0,
+            lambda_r=0,
+            learning_rate=0.1,
+            random_state=None
+    ):
+        super().__init__()
+        self.save_hyperparameters()
+
+        # Initialize parameters
+        self.S = torch.tensor(S, dtype=torch.float32)
+        self.G = torch.tensor(G, dtype=torch.float32)
+
+        self.target_density_enabled = d is not None
+        if self.target_density_enabled:
+            self.d = torch.tensor(d, dtype=torch.float32)
+
+        self.source_density_enabled = d_source is not None
+        if self.source_density_enabled:
+            self.d_source = torch.tensor(d_source, dtype=torch.float32)
+
+        self.lambda_d = lambda_d
+        self.lambda_g1 = lambda_g1
+        self.lambda_g2 = lambda_g2
+        self.lambda_r = lambda_r
+        self.learning_rate = learning_rate
+
+        # Initialize density criterion
+        self._density_criterion = nn.KLDivLoss(reduction="sum")
+
+        # Initialize mapping matrix M as a parameter
+        if random_state is not None:
+            torch.manual_seed(random_state)
+        self.M = nn.Parameter(torch.randn(S.shape[0], G.shape[0]))
+
+    def forward(self):
+        return softmax(self.M, dim=1)
+
+    def training_step(self, batch, batch_idx):
+        M_probs = self()  # Get softmax probabilities
+
+        # Calculate density term
+        density_term = None
+        if self.target_density_enabled and self.source_density_enabled:
+            d_pred = torch.log(self.d_source @ M_probs)
+            density_term = self.lambda_d * self._density_criterion(d_pred, self.d)
+        elif self.target_density_enabled:
+            d_pred = torch.log(M_probs.sum(axis=0) / self.M.shape[0])
+            density_term = self.lambda_d * self._density_criterion(d_pred, self.d)
+
+        # Calculate expression terms
+        G_pred = torch.matmul(M_probs.t(), self.S)
+        gv_term = self.lambda_g1 * cosine_similarity(G_pred, self.G, dim=0).mean()
+        vg_term = self.lambda_g2 * cosine_similarity(G_pred, self.G, dim=1).mean()
+        expression_term = gv_term + vg_term
+
+        # Calculate regularizer term
+        regularizer_term = self.lambda_r * (torch.log(M_probs) * M_probs).sum()
+
+        # Calculate total loss
+        total_loss = -expression_term - regularizer_term
+        if density_term is not None:
+            total_loss = total_loss + density_term
+
+        # Log metrics
+        self.log('train_loss', total_loss, prog_bar=True)
+        self.log('gv_loss', -gv_term)
+        self.log('vg_loss', -vg_term)
+        if density_term is not None:
+            self.log('density_loss', density_term)
+
+        return total_loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam([self.M], lr=self.learning_rate)
+        scheduler = {
+            'scheduler': ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10,
+                                           verbose=True),
+            'monitor': 'train_loss',
+            'interval': 'epoch',
+            'frequency': 1
+        }
+        return [optimizer], [scheduler]
