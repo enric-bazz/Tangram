@@ -44,6 +44,6 @@ share/python-wheels/
 *.coverage
 *.coverage.*
 
-# Ignore virtualenvironm
 .venv/
 venv/
+myDataCropped/
