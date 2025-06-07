@@ -11,13 +11,14 @@ from tangram import utils as ut
 from . import mapping_utils as mu
 
 
-def get_cv_data(adata_sc, adata_sp, cv_mode="loo"):
+def get_cv_data(adata_sc, adata_sp, cv_mode="kfold", k=10 ):
     """ Generates pair of training/test gene indexes cross validation datasets
 
     Args:
         adata_sc (AnnData): single cell data
         adata_sp (AnnData): gene spatial data
-        cv_mode (str): Optional. support 'loo' and '10fold'. Default is 'loo'.
+        cv_mode (str or int): mode, support 'loo' and 'kfold' cross validaton
+        k (int): Optional. Number of folds for k-folds cross validation
 
     Yields:
         tuple: list of train_genes, list of test_genes
@@ -39,8 +40,8 @@ def get_cv_data(adata_sc, adata_sp, cv_mode="loo"):
 
     if cv_mode == "loo":
         cv = LeaveOneOut()
-    elif cv_mode == "10fold":
-        cv = KFold(n_splits=10)
+    elif cv_mode == "kfold":
+        cv = KFold(n_splits=k)
 
     for train_idx, test_idx in cv.split(genes_array):
         train_genes = list(genes_array[train_idx])
@@ -64,7 +65,8 @@ def cross_validate(
         num_epochs=1000,
         device="cpu",
         learning_rate=0.1,
-        cv_mode="loo",
+        cv_mode="kfold",
+        cv_k=10,
         density_prior=None,
         random_state=None,
         verbose=False,
@@ -89,7 +91,8 @@ def cross_validate(
         num_epochs (int): Optional. Number of epochs. Default is 1000.
         learning_rate (float): Optional. Learning rate for the optimizer. Default is 0.1.
         device (str or torch.device): Optional. Default is 'cuda:0'.
-        cv_mode (str): Optional. cross validation mode, 'loo' ('leave-one-out') and '10fold' supported. Default is 'loo'.
+        cv_mode (str): Cross validation mode, 'loo' ('leave-one-out') and 'kfold' supported. Default is 'kfold'.
+        cv_k (int): Number of cross validation folds. Default is 10.
         return_gene_pred (bool): Optional. if return prediction and true spatial expression data for test gene, only applicable when 'loo' mode is on, default is False.
         density_prior (ndarray or str): Spatial density of spots, when is a string, value can be 'rna_count_based' or 'uniform', when is a ndarray, shape = (number_spots,). This array should satisfy the constraints sum() == 1. If not provided, the density term is ignored.
         random_state (int): Optional. pass an int to reproduce training. Default is None.
@@ -115,8 +118,8 @@ def cross_validate(
         length = len(list(adata_sc.uns["training_genes"]))
         for metric in metrics:
             fold_metrics[metric] = []  # np.zeros(len(adata_sc.uns["training_genes"]))
-    elif cv_mode == "10fold":
-        length = 10
+    elif cv_mode == "kfold":
+        length = cv_k
         for metric in metrics:
             fold_metrics[metric] = []  # np.zeros(10)
 
@@ -126,7 +129,7 @@ def cross_validate(
 
 
     for train_genes, test_genes in tqdm(
-            get_cv_data(adata_sc, adata_sp, cv_mode), total=length
+            get_cv_data(adata_sc, adata_sp, cv_mode, cv_k), total=length
     ):
         # train
         adata_map = mu.map_cells_to_space(
