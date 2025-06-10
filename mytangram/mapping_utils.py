@@ -222,17 +222,6 @@ def validate_mapping_inputs(
 
     assert list(adata_sp.uns["training_genes"]) == list(adata_sc.uns["training_genes"])
 
-    # get training_genes
-    if cv_train_genes is None:
-        training_genes = adata_sc.uns["training_genes"]
-    elif cv_train_genes is not None:
-        if set(cv_train_genes).issubset(set(adata_sc.uns["training_genes"])):
-            training_genes = cv_train_genes
-        else:
-            raise ValueError(
-                "Given training genes list should be subset of two AnnDatas."
-            )
-
     # Validate numerical parameters
     if num_epochs <= 0:
         raise ValueError("num_epochs must be positive")
@@ -278,7 +267,7 @@ def validate_mapping_inputs(
     else:  # cell mode
         d_source = None
 
-    ## Create hyperparameters dictionary fo all next calls
+    ## Create hyperparameters dictionary for all next calls
     if mode == "cells":
         hyperparameters = {
             "lambda_d": lambda_d,  # KL (ie density) term
@@ -301,7 +290,7 @@ def validate_mapping_inputs(
 
 
 
-    return training_genes, hyperparameters, d, d_str
+    return hyperparameters, d, d_str
 
 
 def map_cells_to_space(
@@ -356,7 +345,7 @@ def map_cells_to_space(
     """
 
     # Invoke input control function
-    training_genes, hyperparameters, d, d_str = validate_mapping_inputs(
+    hyperparameters, d, d_str = validate_mapping_inputs(
         adata_sc=adata_sc,
         adata_sp=adata_sp,
         cv_train_genes=cv_train_genes,
@@ -374,6 +363,19 @@ def map_cells_to_space(
         target_count=target_count,
         density_prior=density_prior
     )
+
+    # get training_genes
+    if cv_train_genes is None:
+        training_genes = adata_sc.uns["training_genes"]
+    elif cv_train_genes is not None:
+        if set(cv_train_genes).issubset(set(adata_sc.uns["training_genes"])):
+            training_genes = cv_train_genes
+        else:
+            raise ValueError(
+                "Given training genes list should be subset of two AnnDatas."
+            )
+
+
     # Compute cluster-level anndata object
     if mode == "clusters":
         adata_sc = adata_to_cluster_expression(
@@ -436,7 +438,7 @@ def map_cells_to_space(
             learning_rate=learning_rate, num_epochs=num_epochs, print_each=print_each,
         )
 
-        ### MAPPING with coonstraint
+        ### MAPPING with constraint
     elif mode == "constrained":
         logging.info(
             "Begin training with {} genes and {} density_prior in {} mode...".format(
