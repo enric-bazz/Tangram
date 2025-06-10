@@ -1,6 +1,6 @@
-'''
+"""
 Lightning module for Tangram
-'''
+"""
 import random
 
 import numpy as np
@@ -15,8 +15,8 @@ class MapperLightning(pl.LightningModule):
     def __init__(
             self,
             d=None,
-            lambda_g1=1.0,
             lambda_d=0,
+            lambda_g1=1.0,
             lambda_g2=0,
             lambda_r=0,
             lambda_count=1,
@@ -45,47 +45,19 @@ class MapperLightning(pl.LightningModule):
 
         super().__init__()
         self.save_hyperparameters()
-
+        # This command passes all args as self.hparams attributes
 
         # Turn target density vector (ndarray) into torch.tensor
         self.target_density_enabled = d is not None
         if self.target_density_enabled:
-            self.d = torch.tensor(d, dtype=torch.float32)
-
-
-        # Pass all regularization coefficients (input) as class attributes
-        self.lambda_d = lambda_d
-        self.lambda_g1 = lambda_g1
-        self.lambda_g2 = lambda_g2
-        self.lambda_r = lambda_r
-        self.lambda_count = lambda_count
-        self.lambda_f_reg = lambda_f_reg
-        self.learning_rate = learning_rate
-
-        # Set filter mode as attribute
-        self.constraint = constraint
+            self.hparams.d = torch.tensor(d, dtype=torch.float32)
 
         # Initialize density criterion
         self._density_criterion = nn.KLDivLoss(reduction="sum")
 
-        # Set target number (if filter is True) ---> see setup method
-        #if self.constraint:
-            # if the target is not provided, set to number of voxels
-         #   if target_count is None:
-          #     self.target_count = self.G.shape[0]
-            #else:
-           #     self.target_count = target_count
-
-
-
         # Parameters M and F will be initialized in setup()
         self.M = None
         self.F = None
-
-        #self.M = nn.Parameter(torch.randn(S.shape[0], G.shape[0]))
-        # Set initial conditions of F to Standard distributed values (if filter is True)
-        #if self.constraint:
-         #   self.F = nn.Parameter(torch.randn(S.shape[0],))
 
         # Create training history dictionary
         self.history = {
@@ -101,7 +73,7 @@ class MapperLightning(pl.LightningModule):
         # Add filter history tracking
         self.filter_history = {
             'filter_values': [],  # Store filter values per epoch
-            'n_cells': []  # Store number of cells that pass the filter per epoch
+            'n_cells': []  # Store the number of cells that pass the filter per epoch
         }
 
     def setup(self, stage=None):
@@ -130,7 +102,7 @@ class MapperLightning(pl.LightningModule):
             self.M = nn.Parameter(torch.randn(n_cells, n_spots))
 
             # Initialize filter F if using constraints
-            if self.constraint:
+            if self.hparams.constraint:
                 self.F = nn.Parameter(torch.randn(n_cells))
 
                 # Set target count if not provided
@@ -141,7 +113,7 @@ class MapperLightning(pl.LightningModule):
         """
         Compute the mapping probabilities.
         """
-        if self.constraint:
+        if self.hparams.constraint:
             F_probs = torch.sigmoid(self.F)
             M_probs = softmax(self.M, dim=1)
             return M_probs * F_probs[:, None], F_probs
@@ -156,7 +128,7 @@ class MapperLightning(pl.LightningModule):
         G = batch['G']  # spatial data
 
         # Forward step to get mapping probabilities
-        if self.constraint:
+        if self.hparams.constraint:
             M_probs, F_probs = self()  # Get softmax probabilities and filter probabilities
         else:
             M_probs = self()  # Get softmax probabilities
@@ -165,10 +137,10 @@ class MapperLightning(pl.LightningModule):
         ## Loss computation
         # Calculate density term
         density_term = None
-        self.target_density_enabled = self.d is not None
+        self.target_density_enabled = self.hparams.d is not None
         if self.target_density_enabled:
             d_pred = torch.log(M_probs.sum(axis=0) / self.M.shape[0])
-            density_term = self.lambda_d * self._density_criterion(d_pred, self.d)
+            density_term = self.hparams.lambda_d * self._density_criterion(d_pred, self.hparams.d)
 
         # Calculate expression terms
         G_pred = torch.matmul(M_probs.t(), S)
@@ -182,16 +154,16 @@ class MapperLightning(pl.LightningModule):
         # Calculate total loss
         total_loss = -expression_term - regularizer_term
 
-        self.target_density_enabled = self.d is not None
+        self.target_density_enabled = self.hparams.d is not None
         if density_term is not None:
             total_loss = total_loss + density_term
 
         # Define count term and filter regularizers (if filter mode)
-        if self.constraint:
+        if self.hparams.constraint:
             # Count term: abs( sum(f_i, over cells i) - n_target_cells)
-            count_term = self.lambda_count * torch.abs(F_probs.sum() - self.hparams.target_count)
+            count_term = self.hparams.lambda_count * torch.abs(F_probs.sum() - self.hparams.target_count)
             # Filter regularizer: sum(f_i - f_i^2, over cells i)
-            f_reg = self.lambda_f_reg * (F_probs - F_probs * F_probs).sum()
+            f_reg = self.hparams.lambda_f_reg * (F_probs - F_probs * F_probs).sum()
             total_loss = total_loss + count_term + f_reg
 
 
@@ -211,15 +183,15 @@ class MapperLightning(pl.LightningModule):
             "vg_reg": vg_term,
             "kl_reg": density_term if density_term is not None else torch.tensor(float('nan')),
             "entropy_reg": regularizer_term,
-            "count_reg": count_term if self.constraint else torch.tensor(float('nan')),
-            "lambda_f_reg": f_reg if self.constraint else torch.tensor(float('nan'))
+            "count_reg": count_term if self.hparams.constraint else torch.tensor(float('nan')),
+            "lambda_f_reg": f_reg if self.hparams.constraint else torch.tensor(float('nan'))
         }
 
         # Store values for the epoch
         self.last_step_values = {k: v.detach() for k, v in step_output.items()}
 
         # Store filter values if in constrained mode
-        if self.constraint:
+        if self.hparams.constraint:
             self.last_filter_values = {
                 'filter_values': F_probs.detach(),
                 'n_cells': torch.sum(F_probs > 0.5).detach()  # Count cells with filter prob > 0.5
@@ -235,7 +207,7 @@ class MapperLightning(pl.LightningModule):
                 self.history[key].append(float(value))
 
         # Store filter history if in constrained mode
-        if self.constraint:
+        if self.hparams.constraint:
             self.filter_history['filter_values'].append(
                 self.last_filter_values['filter_values'].cpu().numpy()
             )
@@ -245,12 +217,10 @@ class MapperLightning(pl.LightningModule):
 
     def configure_optimizers(self):
         # optimizer and learning rate
-        params = [self.M]
-
-        if self.constraint:
-            optimizer = torch.optim.Adam([self.M, self.F], lr=self.learning_rate)
+        if self.hparams.constraint:
+            optimizer = torch.optim.Adam([self.M, self.F], lr=self.hparams.learning_rate)
         else:
-            optimizer = torch.optim.Adam([self.M], lr=self.learning_rate)
+            optimizer = torch.optim.Adam([self.M], lr=self.hparams.learning_rate)
         scheduler = {
             'scheduler': ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10),
             'monitor': 'train_loss',
@@ -264,7 +234,7 @@ class MapperLightning(pl.LightningModule):
         """
         Returns the final filter values after training.
         """
-        if not self.constraint:
+        if not self.hparams.constraint:
             return None
 
         with torch.no_grad():
@@ -275,6 +245,10 @@ class MapperLightning(pl.LightningModule):
 from torch.utils.data import DataLoader
 
 class MyDataModule(pl.LightningDataModule):
+    """
+        Lightning DataModule for Tangram mapping.
+    """
+
     def __init__(self, adata_sc=None, adata_st=None, data_dir=None, batch_size=None):
         super().__init__()
         self.adata_sc = adata_sc
@@ -362,6 +336,9 @@ from torch.utils.data import Dataset
 
 
 class AdataPairDataset(Dataset):
+    """
+        Dataset for Tangram mapping.
+    """
     def __init__(self, adata_sc, adata_sp):
         import logging
         from scipy.sparse import csc_matrix, csr_matrix
