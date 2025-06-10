@@ -1,3 +1,7 @@
+"""
+Mapping functions for Tangram using the Lightning framework.
+"""
+
 import logging
 
 import scanpy as sc
@@ -20,7 +24,6 @@ def validate_mapping_inputs(
         lambda_f_reg=1,
         target_count=None,
         density_prior='rna_count_based',
-        device="cpu"
 ):
     """
     Validates inputs for cell-to-space mapping functions in the Tangram framework.
@@ -28,24 +31,30 @@ def validate_mapping_inputs(
     Args:
         adata_sc (AnnData): Single-cell RNA-seq data object for source cells
         adata_sp (AnnData): Spatial transcriptomics data object for target space
-        genes (list): Optional. List of genes to use for mapping. If None, all genes in both datasets will be used.
-        mode (str): Optional. Mapping mode, either 'cells' or 'constrained'. Default is 'cells'.
-        num_epochs (int): Optional. Number of epochs for training. Default is 1000.
+        mode (str): Mapping mode, either 'cells' or 'constrained'. Default is 'cells'.
         learning_rate (float): Optional. Learning rate for training. Default is 0.1.
+        num_epochs (int): Optional. Number of epochs for training. Default is 1000.
+        lambda_d (float): Optional. Weight for KL divergence term. Default is 0.
+        lambda_g1 (float): Optional. Weight for gene-voxel cosine similarity term. Default is 1.
+        lambda_g2 (float): Optional. Weight for voxel-gene cosine similarity term. Default is 0.
+        lambda_r (float): Optional. Weight for regularizer term. Default is 0.
+        lambda_count (float): Optional. Weight for target cell count regularizer. Default is 1.
+        lambda_f_reg (float): Optional. Weight for sigmoid regularizer. Default is 1.
+        target_count (int): Optional. Target number of cells. Default is None (computed automatically).
+        density_prior (str or np.ndarray): Optional. Density prior for spatial locations. Default is 'rna_count_based'.
+
 
     Returns:
-        tuple: A tuple containing:
-            - adata_sc: Validated/preprocessed single-cell data
-            - adata_sp: Validated/preprocessed spatial data
-            - genes: List of validated genes
-            - hyperparameters: Dict of validated hyperparameters
+        hyperparameters (dict): Dictionary of hyperparameters for training
+        d (np.ndarray): Density prior for spatial locations
+        d_str (str): String representation of density prior for logging purposes
 
     Raises:
         ValueError: If inputs are invalid or incompatible
     """
 
     ### INPUT Control
-    # check invalid values for arguments
+    # checks invalid values for arguments
     if lambda_g1 == 0:
         raise ValueError("lambda_g1 cannot be 0.")
 
@@ -69,11 +78,9 @@ def validate_mapping_inputs(
     if mode not in ["cells", "constrained"]:
         raise ValueError('Argument "mode" must be "cells" or "constrained')
 
-
-
     # Validate and process genes
     ### Training Genes
-    # Check if training_genes key exist/is valid in adatas.uns
+    # Check if training_genes key exists/is valid in adata.uns
     if not set(["training_genes", "overlap_genes"]).issubset(set(adata_sc.uns.keys())):
         raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
 
@@ -88,15 +95,8 @@ def validate_mapping_inputs(
     if learning_rate <= 0:
         raise ValueError("learning_rate must be positive")
 
-    # Validate device
-    if device not in ['cpu', 'cuda']:
-        raise ValueError("device must be either 'cpu' or 'cuda'")
-    if device == 'cuda' and not torch.cuda.is_available():
-        logging.warning("CUDA device requested but not available. Falling back to CPU.")
-        device = 'cpu'
-
     ### Density prior
-    # define density_prior if 'rna_count_based' is passed to the density_prior argument:
+    # defines density_prior if 'rna_count_based' is passed to the density_prior argument:
     d_str = density_prior
     if type(density_prior) is np.ndarray:
         d_str = "customized"
@@ -140,9 +140,6 @@ def validate_mapping_inputs(
             "target_count": target_count,  # target number of cells
         }
 
-
-
-
     return hyperparameters, d, d_str
 
 
@@ -168,29 +165,28 @@ def map_cells_to_space_lightning(
 
     Args:
         (same as validate_mapping_inputs)
+        random_state (int): Optional. Random seed for reproducibility. Default is None.
+        verbose (bool): Optional. Sets echo for training. Default is True.
 
     Returns:
         AnnData: Updated single-cell object with mapping results
     """
 
     # Invoke input control function
-    hyperparameters, d, d_str = validate_mapping_inputs(
-        adata_sc=adata_sc,
-        adata_sp=adata_sp,
-        mode=mode,
-        learning_rate=learning_rate,
-        num_epochs=num_epochs,
-        lambda_d=lambda_d,
-        lambda_g1=lambda_g1,
-        lambda_g2=lambda_g2,
-        lambda_r=lambda_r,
-        lambda_count=lambda_count,
-        lambda_f_reg=lambda_f_reg,
-        target_count=target_count,
-        density_prior=density_prior
-    )
-
-
+    hyperparameters, d, d_str = validate_mapping_inputs(adata_sc=adata_sc,
+                                                        adata_sp=adata_sp,
+                                                        mode=mode,
+                                                        learning_rate=learning_rate,
+                                                        num_epochs=num_epochs,
+                                                        lambda_d=lambda_d,
+                                                        lambda_g1=lambda_g1,
+                                                        lambda_g2=lambda_g2,
+                                                        lambda_r=lambda_r,
+                                                        lambda_count=lambda_count,
+                                                        lambda_f_reg=lambda_f_reg,
+                                                        target_count=target_count,
+                                                        density_prior=density_prior,
+                                                        )
 
     # Set echo
     if verbose:
@@ -198,7 +194,7 @@ def map_cells_to_space_lightning(
     else:
         print_each = None
 
-
+    # Call the data module to retrieve batch size
     data = MyDataModule(adata_sc, adata_sp)
 
     # Initialize the model
@@ -226,7 +222,7 @@ def map_cells_to_space_lightning(
 
     # Get the final mapping matrix
     with torch.no_grad():
-        if model.constraint:
+        if model.hparams.constraint:
             mapping, filter_probs = model()  # Unpack both values
             final_mapping = mapping.cpu().numpy()
             final_filter = filter_probs.cpu().numpy()
@@ -257,7 +253,7 @@ def map_cells_to_space_lightning(
     }
 
     # Store filter-related information if using constrained mode
-    if model.constraint:
+    if model.hparams.constraint:
         adata_map.uns['filter_history'] = {
             'filter_values': model.filter_history['filter_values'],
             'n_cells': model.filter_history['n_cells']
