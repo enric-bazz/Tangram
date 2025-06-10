@@ -47,3 +47,4 @@ share/python-wheels/
 .venv/
 venv/
 myDataCropped/
+MyScripts/lightning_logs

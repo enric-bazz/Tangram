@@ -98,8 +98,6 @@ def RMSE(raw, impute, scale=None):
 def cal_ssim(im1, im2, M):
     """
         calculate the SSIM value between two arrays.
-        Detail usages can be found in PredictGenes.ipynb
-
 
     Parameters
         -------
