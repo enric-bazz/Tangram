@@ -63,7 +63,7 @@ class Mapper:
             self.d_source = torch.tensor(d_source, device=device, dtype=torch.float32)
 
 
-        # Pass all regularization ocefficients (input) as class attributes
+        # Pass all regularization coefficients (input) as class attributes
         self.lambda_d = lambda_d
         self.lambda_g1 = lambda_g1
         self.lambda_g2 = lambda_g2
@@ -167,21 +167,21 @@ class Mapper:
 
 
         # Define outputs: each variable corresponds to a term of the loss, re-scaled of the regularizer and turned to list
-        main_loss = (gv_term / self.lambda_g1).tolist()  # not .tolist() to exclude string metadata
+        main_loss = (gv_term).tolist()  # not .tolist() to exclude string metadata
         kl_reg = (
-            (density_term / self.lambda_d).tolist()
+            (density_term).tolist()
             if density_term is not None
             else np.nan
         )  # conditional assignment must return something
-        vg_reg = (vg_term / self.lambda_g2).tolist()
+        vg_reg = (vg_term).tolist()
         if self.constraint:
-            count_reg = (count_term / self.lambda_count).tolist()
-            lambda_f_reg = (f_reg / self.lambda_f_reg).tolist()
+            count_reg = (count_term).tolist()
+            lambda_f_reg = (f_reg).tolist()
         else:
             count_reg = None
             lambda_f_reg = None
 
-        entropy_reg = (regularizer_term / self.lambda_r).tolist()
+        entropy_reg = (regularizer_term).tolist()
 
         # verbose print message
         if verbose:
@@ -275,7 +275,10 @@ class Mapper:
 
             # Append current values to dictionary lists
             for i in range(len(keys)):
-                training_history[keys[i]].append(run_loss[i])  # remove str(run_loss[i]) to maintain float values
+                if i == 0:
+                    training_history[keys[i]].append(loss.item())  # detach tensor from grad
+                else:
+                    training_history[keys[i]].append(run_loss[i])  # remove str(run_loss[i]) to maintain float values
 
             # Append current filter weights
             if self.constraint:

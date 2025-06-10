@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import torch
+from anndata import *
 from scipy.sparse.csc import csc_matrix
 from scipy.sparse.csr import csr_matrix
 
@@ -136,6 +137,162 @@ def adata_to_cluster_expression(adata, cluster_label, scale=True, add_density=Tr
     return adata_ret
 
 
+def validate_mapping_inputs(
+        adata_sc,
+        adata_sp,
+        cv_train_genes=None,
+        cluster_label=None,
+        mode="cells",
+        device="cpu",
+        learning_rate=0.1,
+        num_epochs=1000,
+        lambda_d=0,
+        lambda_g1=1,
+        lambda_g2=0,
+        lambda_r=0,
+        lambda_count=1,
+        lambda_f_reg=1,
+        target_count=None,
+        density_prior='rna_count_based',):
+    """
+    Validates inputs for cell-to-space mapping functions in the Tangram framework.
+
+    Args:
+        adata_sc (AnnData): Single-cell RNA-seq data object for source cells
+        adata_sp (AnnData): Spatial transcriptomics data object for target space
+        genes (list): Optional. List of genes to use for mapping. If None, all genes in both datasets will be used.
+        mode (str): Optional. Mapping mode, either 'cells' or 'clusters'. Default is 'clusters'.
+        cluster_label (str): Optional. If mode=='clusters', name of the column in adata_sc.obs containing cluster labels.
+        count_normalize (bool): Optional. If True, data will be count-normalized. Default is True.
+        num_epochs (int): Optional. Number of epochs for training. Default is 1000.
+        device (str): Optional. Device for computation ('cpu' or 'cuda'). Default is 'cpu'.
+        learning_rate (float): Optional. Learning rate for training. Default is 0.1.
+
+    Returns:
+        tuple: A tuple containing:
+            - adata_sc: Validated/preprocessed single-cell data
+            - adata_sp: Validated/preprocessed spatial data
+            - genes: List of validated genes
+            - hyperparameters: Dict of validated hyperparameters
+
+    Raises:
+        ValueError: If inputs are invalid or incompatible
+    """
+
+    ### INPUT Control
+    # check invalid values for arguments
+    if lambda_g1 == 0:
+        raise ValueError("lambda_g1 cannot be 0.")
+
+    if (type(density_prior) is str) and (
+            density_prior not in ["rna_count_based", "uniform", None]
+    ):
+        raise ValueError("Invalid input for density_prior.")
+
+    if density_prior is not None and (lambda_d == 0 or lambda_d is None):
+        lambda_d = 1
+
+    if lambda_d > 0 and density_prior is None:
+        raise ValueError("When lambda_d is set, please define the density_prior.")
+
+
+    # Validate data objects
+    if not isinstance(adata_sc, AnnData) or not isinstance(adata_sp, AnnData):
+        raise ValueError("Both adata_sc and adata_sp must be AnnData objects")
+
+    # Validate mapping mode
+    if mode not in ["cells", "constrained", "cluster"]:
+        raise ValueError('Argument "mode" must be "cells" or "constrained')
+
+    # Validate cluster information if needed
+    if mode == 'clusters':
+        if cluster_label is None:
+            raise ValueError("A cluster_label must be specified if mode is 'clusters'.")
+        if cluster_label not in adata_sc.obs.columns:
+            raise ValueError(f"cluster_label '{cluster_label}' not found in adata_sc.obs")
+
+    # Validate and process genes
+    ### Training Genes
+    # Check if training_genes key exist/is valid in adatas.uns
+    if not set(["training_genes", "overlap_genes"]).issubset(set(adata_sc.uns.keys())):
+        raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
+
+    if not set(["training_genes", "overlap_genes"]).issubset(set(adata_sp.uns.keys())):
+        raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
+
+    assert list(adata_sp.uns["training_genes"]) == list(adata_sc.uns["training_genes"])
+
+    # Validate numerical parameters
+    if num_epochs <= 0:
+        raise ValueError("num_epochs must be positive")
+    if learning_rate <= 0:
+        raise ValueError("learning_rate must be positive")
+
+    # Validate device
+    if device not in ['cpu', 'cuda']:
+        raise ValueError("device must be either 'cpu' or 'cuda'")
+    if device == 'cuda' and not torch.cuda.is_available():
+        logging.warning("CUDA device requested but not available. Falling back to CPU.")
+        device = 'cpu'
+
+        ### Density prior
+        # define density_prior if 'rna_count_based' is passed to the density_prior argument:
+    d_str = density_prior
+    if type(density_prior) is np.ndarray:
+        d_str = "customized"
+    else:
+        if density_prior == "rna_count_based":
+            density_prior = adata_sp.obs["rna_count_based_density"]
+
+        # define density_prior if 'uniform' is passed to the density_prior argument:
+        elif density_prior == "uniform":
+            density_prior = adata_sp.obs["uniform_density"]
+
+    if mode == "cells":
+        d = density_prior
+
+    # Filter-mode density prior: uniform or input
+    if mode == "constrained":
+        if density_prior is None:
+            d = adata_sp.obs["uniform_density"]
+            d_str = "uniform"
+        else:
+            d = density_prior
+        if lambda_d is None or lambda_d == 0:
+            lambda_d = 1
+
+    # Cluster-mode density: density annotated with adata_to_cluster_expression()
+    if mode == "clusters":
+        d_source = np.array(adata_sc.obs["cluster_density"])
+    else:  # cell mode
+        d_source = None
+
+    ## Create hyperparameters dictionary for all next calls
+    if mode == "cells":
+        hyperparameters = {
+            "lambda_d": lambda_d,  # KL (ie density) term
+            "lambda_g1": lambda_g1,  # gene-voxel cos sim
+            "lambda_g2": lambda_g2,  # voxel-gene cos sim
+            "lambda_r": lambda_r,  # regularizer: penalize entropy
+            "d_source": d_source,
+        }
+    elif mode == "constrained":
+        hyperparameters = {
+            "lambda_d": lambda_d,  # KL (ie density) term
+            "lambda_g1": lambda_g1,  # gene-voxel cos sim
+            "lambda_g2": lambda_g2,  # voxel-gene cos sim
+            "lambda_r": lambda_r,  # regularizer: penalize entropy
+            "lambda_count": lambda_count,  # regularizer: enforce target number of cells
+            "lambda_f_reg": lambda_f_reg,  # regularizer: push sigmoid values to 0,1
+            "target_count": target_count,  # target number of cells
+        }
+
+
+
+
+    return hyperparameters, d, d_str
+
+
 def map_cells_to_space(
         adata_sc,
         adata_sp,
@@ -186,50 +343,26 @@ def map_cells_to_space(
         The `uns` field of the returned AnnData contains the training genes and the history over epochs of loss terms.
         if mode = 'constrained', then the history of filter values is also returned.
     """
-    ### INPUT Control
-    # check invalid values for arguments
-    if lambda_g1 == 0:
-        raise ValueError("lambda_g1 cannot be 0.")
 
-    if (type(density_prior) is str) and (
-            density_prior not in ["rna_count_based", "uniform", None]
-    ):
-        raise ValueError("Invalid input for density_prior.")
-
-    if density_prior is not None and (lambda_d == 0 or lambda_d is None):
-        lambda_d = 1
-
-    if lambda_d > 0 and density_prior is None:
-        raise ValueError("When lambda_d is set, please define the density_prior.")
-
-    if mode not in ["cells", "constrained", "cluster"]:
-        raise ValueError('Argument "mode" must be "cells" or "constrained')
-
-    if mode == "clusters" and cluster_label is None:
-        raise ValueError("A cluster_label must be specified if mode is 'clusters'.")
-
-    # Default values are set and "target_count is None" is managed appropriately
-    #if mode == "constrained" and not all([target_count, lambda_f_reg, lambda_count]):
-    #    raise ValueError(
-    #        "target_count, lambda_f_reg and lambda_count must be specified if mode is 'constrained'."
-    #    )
-
-    # Compute cluster-level anndata object
-    if mode == "clusters":
-        adata_sc = adata_to_cluster_expression(
-            adata_sc, cluster_label, scale, add_density=True
-        )
-    #### perhaps there is a better way of managing cluster mode-specific args like scale, cluster_label
-
-    ### Training Genes
-    # Check if training_genes key exist/is valid in adatas.uns
-    if not set(["training_genes", "overlap_genes"]).issubset(set(adata_sc.uns.keys())):
-        raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
-
-    if not set(["training_genes", "overlap_genes"]).issubset(set(adata_sp.uns.keys())):
-        raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
-
-    assert list(adata_sp.uns["training_genes"]) == list(adata_sc.uns["training_genes"])
+    # Invoke input control function
+    hyperparameters, d, d_str = validate_mapping_inputs(
+        adata_sc=adata_sc,
+        adata_sp=adata_sp,
+        cv_train_genes=cv_train_genes,
+        cluster_label=cluster_label,
+        mode=mode,
+        device=device,
+        learning_rate=learning_rate,
+        num_epochs=num_epochs,
+        lambda_d=lambda_d,
+        lambda_g1=lambda_g1,
+        lambda_g2=lambda_g2,
+        lambda_r=lambda_r,
+        lambda_count=lambda_count,
+        lambda_f_reg=lambda_f_reg,
+        target_count=target_count,
+        density_prior=density_prior
+    )
 
     # get training_genes
     if cv_train_genes is None:
@@ -241,6 +374,14 @@ def map_cells_to_space(
             raise ValueError(
                 "Given training genes list should be subset of two AnnDatas."
             )
+
+
+    # Compute cluster-level anndata object
+    if mode == "clusters":
+        adata_sc = adata_to_cluster_expression(
+            adata_sc, cluster_label, scale, add_density=True
+        )
+    #### perhaps there is a better way of managing cluster mode-specific args like scale, cluster_label
 
     ### INPUT Tensors: allocate them as arrays even if sparse matrices
     logging.info("Allocate tensors for mapping.")
@@ -265,37 +406,6 @@ def map_cells_to_space(
         logging.error("AnnData X has unrecognized type: {}".format(X_type))
         raise NotImplementedError
 
-    ### Density prior
-    # define density_prior if 'rna_count_based' is passed to the density_prior argument:
-    d_str = density_prior
-    if type(density_prior) is np.ndarray:
-        d_str = "customized"
-    else:
-        if density_prior == "rna_count_based":
-            density_prior = adata_sp.obs["rna_count_based_density"]
-
-        # define density_prior if 'uniform' is passed to the density_prior argument:
-        elif density_prior == "uniform":
-            density_prior = adata_sp.obs["uniform_density"]
-
-    if mode == "cells":
-        d = density_prior
-
-    # Filter-mode density prior: uniform or input
-    if mode == "constrained":
-        if density_prior is None:
-            d = adata_sp.obs["uniform_density"]
-            d_str = "uniform"
-        else:
-            d = density_prior
-        if lambda_d is None or lambda_d == 0:
-            lambda_d = 1
-
-    # Cluster-mode density: density annotated with adata_to_cluster_expression()
-    if mode == "clusters":
-        d_source = np.array(adata_sc.obs["cluster_density"])
-    else:  # cell mode
-        d_source = None
 
     # Choose device
     device = torch.device(device)  # for gpu
@@ -308,16 +418,6 @@ def map_cells_to_space(
 
     ### MAPPING no constraint
     if mode == "cells":
-        hyperparameters = {
-            "lambda_d": lambda_d,  # KL (ie density) term
-            "lambda_g1": lambda_g1,  # gene-voxel cos sim
-            "lambda_g2": lambda_g2,  # voxel-gene cos sim
-            "lambda_r": lambda_r,  # regularizer: penalize entropy
-            "d_source": d_source,
-        }
-
-
-
         logging.info(
             "Begin training with {} genes and {} density_prior in {} mode...".format(
                 len(training_genes), d_str, mode
@@ -338,18 +438,8 @@ def map_cells_to_space(
             learning_rate=learning_rate, num_epochs=num_epochs, print_each=print_each,
         )
 
-        ### MAPPING with coonstraint
+        ### MAPPING with constraint
     elif mode == "constrained":
-        hyperparameters = {
-            "lambda_d": lambda_d,  # KL (ie density) term
-            "lambda_g1": lambda_g1,  # gene-voxel cos sim
-            "lambda_g2": lambda_g2,  # voxel-gene cos sim
-            "lambda_r": lambda_r,  # regularizer: penalize entropy
-            "lambda_count": lambda_count,  # regularizer: enforce target number of cells
-            "lambda_f_reg": lambda_f_reg,  # regularizer: push sigmoid values to 0,1
-            "target_count": target_count,  # target number of cells
-        }
-
         logging.info(
             "Begin training with {} genes and {} density_prior in {} mode...".format(
                 len(training_genes), d_str, mode
@@ -412,3 +502,4 @@ def map_cells_to_space(
         adata_map.uns["filter_history"] = filter_history
 
     return adata_map
+
