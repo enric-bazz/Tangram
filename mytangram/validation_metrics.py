@@ -1,13 +1,19 @@
-# Validation metric functions
+"""
+Validation metrics for Tangram. The metrics and scaling procedures are taken from the following paper:
+Li, B., Zhang, W., Guo, C. et al. Benchmarking spatial and single-cell transcriptomics integration methods for transcript distribution prediction and cell type deconvolution.
+Nat Methods (2022). https://doi.org/10.1038/s41592-022-01480-9.
+"""
 import numpy as np
 import pandas as pd
 import scipy.stats as st
 from scipy import stats
 
 
-def ssim(raw, impute, scale=None):
-
-    ###This was used for calculating the SSIM value between two arrays.
+def ssim(raw, impute, scale='scale_max'):
+    """
+    Calculate the SSIM value between two arrays.
+    By default, the data are scaled by max value.
+    """
 
     if scale == 'scale_max':
         raw = scale_max(raw)
@@ -35,10 +41,10 @@ def ssim(raw, impute, scale=None):
     else:
         print("columns error")
 
-def pearsonr(raw, impute, scale=None):
-
-    ###This was used for calculating the Pearson value between two arrays.
-
+def pearsonr(raw, impute):
+    """
+    Calculate the Pearson correlation coefficient between two arrays.
+    """
     if raw.shape[1] == impute.shape[1]:
         result = pd.DataFrame()
         for label in raw.columns:
@@ -49,10 +55,11 @@ def pearsonr(raw, impute, scale=None):
             result = pd.concat([result, pearson_df], axis=1)
         return result
 
-def JS(raw, impute, scale=None):
-
-    ###This was used for calculating the JS value between two arrays.
-
+def JS(raw, impute, scale='scale_plus'):
+    """
+    Calculate the Jensen-Shannon divergence between two arrays.
+    By default, the data are scaled in a column-wise softmax fashion.
+    """
     if scale == 'scale_plus':
         raw = scale_plus(raw)
         impute = scale_plus(impute)
@@ -72,10 +79,11 @@ def JS(raw, impute, scale=None):
             result = pd.concat([result, KL_df], axis=1)
         return result
 
-def RMSE(raw, impute, scale=None):
-
-    ###This was used for calculating the RMSE value between two arrays.
-
+def RMSE(raw, impute, scale='zscore'):
+    """
+    Calculate the root mean squared error between two arrays.
+    By default, the data are scaled by z-score.
+    """
     if scale == 'zscore':
         raw = scale_z_score(raw)
         impute = scale_z_score(impute)
@@ -129,9 +137,7 @@ def cal_ssim(im1, im2, M):
 def scale_max(df):
     """
         Divided by maximum value to scale the data between [0,1].
-        Please note that these datafrmae are scaled data by column.
-        Detail usages can be found in PredictGenes.ipynb
-
+        Please note that these dataframe are scaled data by column.
 
         Parameters
         -------
@@ -148,12 +154,12 @@ def scale_max(df):
 
 def scale_z_score(df):
     """
-        scale the data by Z-score to conform the data to the standard normal distribution, that is, the mean value is 0, the standard deviation is 1, and the conversion function is 0.
-        Please note that these datafrmae are scaled data by column.
-        Detail usages can be found in PredictGenes.ipynb
+        scale the data by Z-score to conform the data to the standard normal distribution, that is,
+        the mean value is 0, the standard deviation is 1, and the conversion function is 0.
+        Please note that these dataframe are scaled data by column.
 
 
-        Parameters
+    Parameters
         -------
         df: dataframe, each col is a feature.
 
@@ -170,9 +176,7 @@ def scale_z_score(df):
 def scale_plus(df):
     """
         Divided by the sum of the data to scale the data between (0,1), and the sum of data is 1.
-        Please note that these datafrmae are scaled data by column.
-        Detail usages can be found in PredictGenes.ipynb
-
+        Please note that these dataframe are scaled data by column.
 
         Parameters
         -------

@@ -305,13 +305,13 @@ def cross_validate_lightning(
         # Metrics evaluation on fold
         for metric in metrics:
             if metric == "SSIM":
-                fold_metrics[metric].append(vm.ssim(raw, impute, scale=None))
+                fold_metrics[metric].append(vm.ssim(raw, impute))
             elif metric == "PCC":
-                fold_metrics[metric].append(vm.pearsonr(raw, impute, scale=None))
+                fold_metrics[metric].append(vm.pearsonr(raw, impute))
             elif metric == "RMSE":
-                fold_metrics[metric].append(vm.RMSE(raw, impute, scale=None))
+                fold_metrics[metric].append(vm.RMSE(raw, impute))
             elif metric == "JS":
-                fold_metrics[metric].append(vm.JS(raw, impute, scale=None))
+                fold_metrics[metric].append(vm.JS(raw, impute))
 
     # Calculate average metrics across folds
     cv_metrics = {}
@@ -319,6 +319,6 @@ def cross_validate_lightning(
         temp_arr = np.zeros(len(fold_metrics[metric]))
         for fold in range(len(fold_metrics[metric])):
             temp_arr[fold] = np.mean(fold_metrics[metric][fold])
-        cv_metrics[metric] = np.array(temp_arr, dtype='float32').mean()
+        cv_metrics[metric] = np.array(temp_arr, dtype='float32').mean().item()
 
     return cv_metrics
