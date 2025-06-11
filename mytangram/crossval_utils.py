@@ -179,13 +179,13 @@ def cross_validate(
         # Metrics evaluation on fold
 
         if "SSIM" in metrics:
-            fold_metrics["SSIM"].append(vm.ssim(raw, impute, scale=None))
+            fold_metrics["SSIM"].append(vm.ssim(raw, impute))
         if "PCC" in metrics:
-            fold_metrics["PCC"].append(vm.pearsonr(raw, impute, scale=None))
+            fold_metrics["PCC"].append(vm.pearsonr(raw, impute))
         if "RMSE" in metrics:
-            fold_metrics["RMSE"].append(vm.RMSE(raw, impute, scale=None))
+            fold_metrics["RMSE"].append(vm.RMSE(raw, impute))
         if "JS" in metrics:
-            fold_metrics["JS"].append(vm.JS(raw, impute, scale=None))
+            fold_metrics["JS"].append(vm.JS(raw, impute))
 
     # Results storing
     # fold_metrics is a dictionary, each item is a list of n_fold elements, each list contains a pd.Series
@@ -195,7 +195,7 @@ def cross_validate(
         temp_arr = np.zeros(len(fold_metrics[metric]))
         for fold in range(len(fold_metrics[metric])):
             temp_arr[fold] = np.mean((fold_metrics[metric][fold]))  # average across genes in the fold
-        cv_metrics[metric] = np.array(temp_arr, dtype='float32').mean()  # average across folds
+        cv_metrics[metric] = np.array(temp_arr, dtype='float32').mean().item()  # average across folds
 
     return cv_metrics
 
