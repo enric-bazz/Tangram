@@ -43,3 +43,8 @@ share/python-wheels/
 # ignore coverage report
 *.coverage
 *.coverage.*
+
+.venv/
+venv/
+myDataCropped/
+MyScripts/lightning_logs
