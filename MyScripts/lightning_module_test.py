@@ -11,7 +11,7 @@ import mytangram as tg
 tg.pp_adatas(adata_sc, adata_st)
 
 # Set parameters for mapping
-mode = "constrained"
+mode = "cells"
 target_count = np.round(len(adata_st.var.index)/3)
 
 # Set seed for reproducibility
@@ -40,3 +40,27 @@ tg.plot_loss_terms(adata_map=ad_map_lt, log_scale=False)
 if mode == "constrained":
     tg.plot_filter_weights_light(ad_map_lt, plot_spaghetti=True, plot_envelope=True)
     tg.plot_filter_count(ad_map_lt, target_count=target_count)
+
+
+# Cross-validation test
+cv_results = tg.cross_validate_lightning(
+    adata_sc,
+    adata_st,
+    mode=mode,
+    lambda_d=1,
+    lambda_g1=1,
+    lambda_g2=1,
+    lambda_r=0.001,
+    lambda_count=1,
+    lambda_f_reg=1,
+    target_count=target_count,
+    num_epochs=30,
+    learning_rate=0.1,
+    cv_mode="kfold",
+    cv_k=3,
+    density_prior='rna_count_based',
+    verbose=False,
+    metrics=["SSIM", "PCC", "RMSE", "JS"]
+)
+
+print(cv_results)
