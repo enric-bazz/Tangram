@@ -241,6 +241,13 @@ class MapperLightning(pl.LightningModule):
             _, F_probs = self()
             return F_probs.cpu().numpy()
 
+    def on_train_start(self):
+        # Print dataset dimensions at the start of training
+        batch = next(iter(self.trainer.train_dataloader))
+        print(f"Training with {len(batch['training_genes'])} genes")
+        print(f"S matrix shape: {batch['S'].shape}")
+        print(f"G matrix shape: {batch['G'].shape}")
+
 
 from torch.utils.data import DataLoader
 
@@ -249,12 +256,13 @@ class MyDataModule(pl.LightningDataModule):
         Lightning DataModule for Tangram mapping.
     """
 
-    def __init__(self, adata_sc=None, adata_st=None, data_dir=None, batch_size=None):
+    def __init__(self, adata_sc=None, adata_st=None, data_dir=None, batch_size=None, train_genes=None):
         super().__init__()
         self.adata_sc = adata_sc
         self.adata_st = adata_st
         self.data_dir = data_dir
         self.batch_size = batch_size
+        self.train_genes = train_genes  # Allow passing specific genes for CV
 
 
     def prepare_data(self):
@@ -312,7 +320,7 @@ class MyDataModule(pl.LightningDataModule):
         This method is called on every GPU separately.
         """
         if stage == 'fit' or stage is None:
-            self.train_dataset = AdataPairDataset(self.adata_sc, self.adata_st)
+            self.train_dataset = AdataPairDataset(self.adata_sc, self.adata_st, train_genes=self.train_genes)
 
             # If batch_size wasn't specified in __init__, use the full dataset
             if self.batch_size is None:
@@ -339,18 +347,23 @@ class AdataPairDataset(Dataset):
     """
         Dataset for Tangram mapping.
     """
-    def __init__(self, adata_sc, adata_sp):
+    def __init__(self, adata_sc, adata_sp, train_genes=None):
         import logging
         from scipy.sparse import csc_matrix, csr_matrix
 
-        # Get training genes from adata_sc.uns if available
-        if 'training_genes' in adata_sc.uns and 'training_genes' in adata_sp.uns:
-            training_genes = adata_sc.uns['training_genes']
-            logging.info(f"Using {len(training_genes)} training genes from adata.uns")
+        # If training genes are specified (CV fold), use them
+        if train_genes is not None:
+            #logging.info(f"Using {len(train_genes)} training genes from user input")
+            training_genes = train_genes
         else:
-            # Use all genes shared between datasets
-            training_genes = list(set(adata_sc.var_names).intersection(set(adata_sp.var_names)))
-            logging.info(f"Using {len(training_genes)} shared genes between datasets")
+            # Get training genes from adata_sc.uns if available
+            if 'training_genes' in adata_sc.uns and 'training_genes' in adata_sp.uns:
+                training_genes = adata_sc.uns['training_genes']
+                logging.info(f"Using {len(training_genes)} training genes from adata.uns")
+            else:
+                # Use all genes shared between datasets
+                training_genes = list(set(adata_sc.var_names).intersection(set(adata_sp.var_names)))
+                logging.info(f"Using {len(training_genes)} shared genes between datasets")
 
         ## S matrix (single-cell)
         if isinstance(adata_sc.X, csc_matrix) or isinstance(adata_sc.X, csr_matrix):

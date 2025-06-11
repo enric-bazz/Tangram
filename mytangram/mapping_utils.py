@@ -140,7 +140,6 @@ def adata_to_cluster_expression(adata, cluster_label, scale=True, add_density=Tr
 def validate_mapping_inputs(
         adata_sc,
         adata_sp,
-        cv_train_genes=None,
         cluster_label=None,
         mode="cells",
         device="cpu",
@@ -348,7 +347,6 @@ def map_cells_to_space(
     hyperparameters, d, d_str = validate_mapping_inputs(
         adata_sc=adata_sc,
         adata_sp=adata_sp,
-        cv_train_genes=cv_train_genes,
         cluster_label=cluster_label,
         mode=mode,
         device=device,

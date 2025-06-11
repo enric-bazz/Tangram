@@ -4,6 +4,7 @@ Mapping functions for Tangram using the Lightning framework.
 
 import logging
 
+import pandas as pd
 import scanpy as sc
 from anndata import *
 
@@ -159,6 +160,7 @@ def map_cells_to_space_lightning(
         random_state=None,
         verbose=True,
         density_prior='rna_count_based',
+        cv_train_genes=None,
  ):
     """
     Maps single cells to spatial locations using the Lightning-based Tangram implementation.
@@ -195,7 +197,7 @@ def map_cells_to_space_lightning(
         print_each = None
 
     # Call the data module to retrieve batch size
-    data = MyDataModule(adata_sc, adata_sp)
+    data = MyDataModule(adata_sc, adata_sp, train_genes=cv_train_genes)
 
     # Initialize the model
     model = MapperLightning(
@@ -230,7 +232,10 @@ def map_cells_to_space_lightning(
             final_mapping = model().cpu().numpy()
 
     logging.info("Saving results..")
-    training_genes = adata_sc.uns['training_genes']
+    if cv_train_genes:  # if it is cross-validating use fold training genes
+        training_genes = cv_train_genes
+    else:  # else automatically retrieve training genes from adata_sc and adata_sp
+        training_genes = adata_sc.uns['training_genes']
 
     adata_map = sc.AnnData(
         X=final_mapping,
@@ -260,5 +265,16 @@ def map_cells_to_space_lightning(
         }
         # Store final filter values
         adata_map.uns['filter'] = model.get_filter()
+
+    # Annotate cosine similarity of each training gene (needed to use tangram.utils.project_genes)
+    G_predicted = adata_map.X.T @ data.train_dataset[0]["S"]  # access S matrix through model attributes
+    cos_sims = []
+    for v1, v2 in zip(data.train_dataset[0]["G"].T, G_predicted.T):
+        norm_sq = np.linalg.norm(v1) * np.linalg.norm(v2)
+        cos_sims.append((v1 @ v2) / norm_sq)
+
+    df_cs = pd.DataFrame(cos_sims, training_genes, columns=["train_score"])
+    df_cs = df_cs.sort_values(by="train_score", ascending=False)
+    adata_map.uns["train_genes_df"] = df_cs
 
     return adata_map
