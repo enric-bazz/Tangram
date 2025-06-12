@@ -56,8 +56,8 @@ class MapperLightning(pl.LightningModule):
         self._density_criterion = nn.KLDivLoss(reduction="sum")
 
         # Parameters M and F will be initialized in setup()
-        self.M = None
-        self.F = None
+        #self.M = None
+        #self.F = None
 
         # Create training history dictionary
         self.history = {
@@ -116,7 +116,9 @@ class MapperLightning(pl.LightningModule):
         if self.hparams.constraint:
             F_probs = torch.sigmoid(self.F)
             M_probs = softmax(self.M, dim=1)
-            return M_probs * F_probs[:, None], F_probs
+            return M_probs, M_probs * F_probs[:, None], F_probs
+        # The original Tangram algorithm uses the filtered M matrix only to compute the estimated energy
+        # All the other terms (cossim, kl regularizer) a re computed on the non-filtered matrix
         else:
             return softmax(self.M, dim=1)
 
@@ -124,14 +126,16 @@ class MapperLightning(pl.LightningModule):
         """
         Training step using data from the datamodule.
         """
-        S = batch['S']  # single-cell data
-        G = batch['G']  # spatial data
+        S = batch['S'].squeeze()  # single-cell data
+        G = batch['G'].squeeze()  # spatial data
+        # squeeze required to remove 1st unitary dimension from tensors
 
         # Forward step to get mapping probabilities
         if self.hparams.constraint:
-            M_probs, F_probs = self()  # Get softmax probabilities and filter probabilities
+            M_probs, M_probs_filtered, F_probs = self()  # Get softmax probabilities and filter probabilities
         else:
             M_probs = self()  # Get softmax probabilities
+        # Notice that with the above forward pass M_probs is already filtered in constrained mode
 
 
         ## Loss computation
@@ -139,11 +143,18 @@ class MapperLightning(pl.LightningModule):
         density_term = None
         self.target_density_enabled = self.hparams.d is not None
         if self.target_density_enabled:
-            d_pred = torch.log(M_probs.sum(axis=0) / self.M.shape[0])
+            if self.hparams.constraint:
+                d_pred = torch.log(M_probs_filtered.sum(axis=0) / (F_probs.sum()))
+            else:
+                d_pred = torch.log(M_probs.sum(axis=0) / self.M.shape[0])
             density_term = self.hparams.lambda_d * self._density_criterion(d_pred, self.hparams.d)
 
         # Calculate expression terms
-        G_pred = torch.matmul(M_probs.t(), S)
+        if self.hparams.constraint:
+            S_filtered = S * F_probs[:, None]
+            G_pred = torch.matmul(M_probs.t(), S_filtered)
+        else:
+            G_pred = torch.matmul(M_probs.t(), S)
         gv_term = self.hparams.lambda_g1 * cosine_similarity(G_pred, G, dim=0).mean()
         vg_term = self.hparams.lambda_g2 * cosine_similarity(G_pred, G, dim=1).mean()
         expression_term = gv_term + vg_term
@@ -238,7 +249,7 @@ class MapperLightning(pl.LightningModule):
             return None
 
         with torch.no_grad():
-            _, F_probs = self()
+            _, _, F_probs = self()
             return F_probs.cpu().numpy()
 
     def on_train_start(self):
