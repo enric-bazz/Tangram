@@ -206,9 +206,11 @@ def map_cells_to_space_lightning(
         lambda_d=lambda_d,
         lambda_g2=lambda_g2,
         lambda_r=lambda_r,
+        lambda_count=lambda_count,
+        lambda_f_reg=lambda_f_reg,
+        target_count=target_count,
         learning_rate=learning_rate,
         constraint=mode == "constrained",
-        target_count=target_count,
         random_state=random_state,
     )
 
@@ -225,7 +227,7 @@ def map_cells_to_space_lightning(
     # Get the final mapping matrix
     with torch.no_grad():
         if model.hparams.constraint:
-            mapping, filter_probs = model()  # Unpack both values
+            mapping, _, filter_probs = model()  # Unpack values (skip filtered M matrix)
             final_mapping = mapping.cpu().numpy()
             final_filter = filter_probs.cpu().numpy()
         else:
