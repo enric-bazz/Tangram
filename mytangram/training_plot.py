@@ -43,16 +43,20 @@ def plot_loss_terms(adata_map, log_scale=True):
     # Create plot
     plt.figure(figsize=(10,20))
 
+    title = 'Loss terms over epochs'
+    if log_scale:
+        title = title + ' (logscale)'
 
     for curve in loss_dict:
         if loss_dict[curve].any():  # truthy keys only
             if log_scale:
-                plt.semilogy(loss_dict[curve], label=curve)
+                plt.semilogy(abs(loss_dict[curve]), label=curve)
             else:
                 plt.plot(loss_dict[curve], label=curve)
             plt.legend()
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
+    plt.title(title)
     plt.show()
     #plt.close()
 
