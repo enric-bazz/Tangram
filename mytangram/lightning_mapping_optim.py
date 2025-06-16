@@ -325,6 +325,8 @@ class MyDataModule(pl.LightningDataModule):
             except ImportError:
                 logging.warning("mytangram not found, skipping pp_adatas step")
 
+            # TODO implement pp_adata internally (perhaps with additional information)
+
     def setup(self, stage=None):
         """
         Setup datasets for use in dataloaders.

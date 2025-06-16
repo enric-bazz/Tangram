@@ -190,6 +190,9 @@ def map_cells_to_space_lightning(
                                                         density_prior=density_prior,
                                                         )
 
+    # TODO set automaitcally hyperparamter values based on scales:
+    # add autoscale arg combined with None inputs lambdas
+
     # Set echo
     if verbose:
         print_each = 100
