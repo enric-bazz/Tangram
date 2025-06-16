@@ -10,6 +10,13 @@ dependencies = [
     "numpy>=2.2.5",
     "pandas>=2.2.3",
     "scanpy>=1.11.1",
+    "spatialdata>=0.3.0",
     "squidpy>=1.6.5",
     "tangram-sc>=1.0.4",
+    "xarray-dataclasses>=0.4.0",
+]
+
+[dependency-groups]
+dev = [
+    "jupyterlab>=4.4.3",
 ]
