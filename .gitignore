@@ -48,3 +48,10 @@ share/python-wheels/
 venv/
 myDataCropped/
 MyScripts/lightning_logs
+
+# ignore as long as unutilized
+mytangram/validation_utils.py
+
+# ingnore tutorials
+tutorial_tangram_with_squidpy.ipynb
+tutorial_tangram_without_squidpy.ipynb
