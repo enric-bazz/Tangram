@@ -6,6 +6,7 @@ import logging
 
 import pandas as pd
 import scanpy as sc
+# from pytorch_lightning import *
 from anndata import *
 
 from .lightning_mapping_optim import *
@@ -217,10 +218,23 @@ def map_cells_to_space_lightning(
         random_state=random_state,
     )
 
+    # Customize ModelCheckpoint callback to avoid memory blow-up
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(
+        #dirpath="checkpoints/",
+        #filename="best-checkpoint",
+        save_top_k=0,
+        #monitor="val_loss",
+        #mode="min",
+        save_weights_only=True
+    )
+
     # Initialize trainer
     trainer = pl.Trainer(
         max_epochs=num_epochs,
-        log_every_n_steps=print_each,
+        #log_every_n_steps=print_each,
+        logger=False,
+        #callbacks=[checkpoint_callback],
+        enable_checkpointing=False,
         enable_progress_bar=True
     )
 
@@ -270,6 +284,8 @@ def map_cells_to_space_lightning(
         }
         # Store final filter values
         adata_map.uns['filter'] = model.get_filter()
+
+    # TODO Manage redundant filter outputs: .obs['F_out'] coincides with .uns['filter'] and they can be included in .uns['filter_history']
 
     # Annotate cosine similarity of each training gene (needed to use tangram.utils.project_genes)
     G_predicted = adata_map.X.T @ data.train_dataset[0]["S"]  # access S matrix through model attributes

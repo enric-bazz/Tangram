@@ -117,8 +117,8 @@ class MapperLightning(pl.LightningModule):
             F_probs = torch.sigmoid(self.F)
             M_probs = softmax(self.M, dim=1)
             return M_probs, M_probs * F_probs[:, None], F_probs
-        # The original Tangram algorithm uses the filtered M matrix only to compute the estimated energy
-        # All the other terms (cossim, kl regularizer) a re computed on the non-filtered matrix
+        # The original Tangram algorithm uses the filtered M matrix only to compute the estimated density
+        # All the other terms (cossim, kl regularizer) are computed on the non-filtered matrix
         else:
             return softmax(self.M, dim=1)
 
