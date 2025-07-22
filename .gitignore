@@ -46,6 +46,8 @@ share/python-wheels/
 
 .venv/
 venv/
+
+# Folders to ignore
 myDataCropped/
 MyScripts/lightning_logs
 
