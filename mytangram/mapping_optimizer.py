@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch.nn.functional import softmax, cosine_similarity
+from tqdm import tqdm
 
 class Mapper:
 
@@ -263,7 +264,7 @@ class Mapper:
             filter_history = []
 
         # Training loop
-        for t in range(num_epochs):
+        for t in tqdm(range(num_epochs)):
             # Run _loss_fn() method as verbose only for epochs that are multiples of _print_each_
             if print_each is None or t % print_each != 0:
                 run_loss = self._loss_fn(verbose=False)
