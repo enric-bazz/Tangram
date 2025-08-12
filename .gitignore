@@ -53,6 +53,7 @@ MyScripts/lightning_logs
 
 # ignore as long as unutilized
 mytangram/validation_utils.py
+mytangram.validation_utils
 
 # ingnore tutorials
 tutorial_tangram_with_squidpy.ipynb

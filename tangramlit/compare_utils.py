@@ -2,8 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 """
-Utilities for models comparison between the mytangram module and the original implementation of the pytorch
- lightning refactor, that now is a stand alone module named tangramlit.
+Utilities for models comparison.
 """
 
 # Plot losses side by side for comparison

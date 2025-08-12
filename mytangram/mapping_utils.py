@@ -286,9 +286,6 @@ def validate_mapping_inputs(
             "target_count": target_count,  # target number of cells
         }
 
-
-
-
     return hyperparameters, d, d_str
 
 
