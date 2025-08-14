@@ -16,7 +16,7 @@ adata_st.var_names_make_unique()"""
 import tangramlit as tg
 
 # Set parameters for mapping
-mode = "refined"
+mode = "vanilla"
 target_count = None
 cluster_label = "cluster_labels"
 

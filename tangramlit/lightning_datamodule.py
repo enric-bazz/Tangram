@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 import scanpy as sc
 import squidpy as sq
 import torch
+from scipy.sparse import csc_matrix, csr_matrix
 from torch.utils.data import Dataset, DataLoader
 
 
@@ -99,8 +100,6 @@ class MyDataModule(pl.LightningDataModule):
 
 class AdataPairDataset(Dataset):
     def __init__(self, adata_sc, adata_sp, train_genes=None):
-        import logging
-        from scipy.sparse import csc_matrix, csr_matrix
 
         # If training genes are specified (CV fold), use them
         if train_genes is not None:
