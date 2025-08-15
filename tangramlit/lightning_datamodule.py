@@ -14,7 +14,14 @@ class MyDataModule(pl.LightningDataModule):
         Lightning DataModule for Tangram mapping.
     """
 
-    def __init__(self, adata_sc=None, adata_st=None, train_genes=None, refined_mode=False):
+    def __init__(self,
+                 adata_sc=None,
+                 adata_st=None,
+                 train_genes=None,
+                 refined_mode=False,
+                 train_genes_idx=None,
+                 val_genes_idx=None
+                 ):
         """
         Lightly preprocessed single-cell and spatial anndata objects.
 
@@ -23,12 +30,16 @@ class MyDataModule(pl.LightningDataModule):
             adata_st (AnnData): Spatial AnnData object.
             train_genes (list): List of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
             refined_mode (bool): Whether to use refined mode for training. If True, use refined mode. If False, use unrefined mode. Default is False.
+            train_genes_idx (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
+            val_genes_idx (list): List of indices of genes to use for validation.
         """
         super().__init__()
         self.adata_sc = adata_sc
         self.adata_st = adata_st
         self.train_genes = train_genes  # Allow passing specific genes for CV and training
         self.refined_mode = refined_mode
+        self.train_genes_idx = train_genes_idx
+        self.val_genes_idx = val_genes_idx
 
         # 2. Compute spatial neighbors needed for the neighborhood extension of Tangram
         if self.refined_mode:
@@ -38,6 +49,7 @@ class MyDataModule(pl.LightningDataModule):
     def prepare_data(self):
         """
         Takes anndata objects and prepares them for mapping.
+        Executed before setup() is called.
         """
 
         # Preprocess data
@@ -78,9 +90,15 @@ class MyDataModule(pl.LightningDataModule):
         """
         Setup datasets for use in dataloaders.
         This method is called on every GPU separately.
+        Execute after prepare_data() and before train_dataloader().
         """
         if stage == 'fit' or stage is None:
-            self.train_dataset = AdataPairDataset(self.adata_sc, self.adata_st, train_genes=self.train_genes)
+            self.train_dataset = AdataPairDataset(self.adata_sc,
+                                                  self.adata_st,
+                                                  train_genes=self.train_genes,
+                                                  train_genes_idx=self.train_genes_idx,
+                                                  val_genes_idx=self.val_genes_idx
+                                                  )
 
 
     def train_dataloader(self):
@@ -99,21 +117,22 @@ class MyDataModule(pl.LightningDataModule):
 
 
 class AdataPairDataset(Dataset):
-    def __init__(self, adata_sc, adata_sp, train_genes=None):
+    def __init__(self,
+                 adata_sc,
+                 adata_st,
+                 train_genes=None,
+                 train_genes_idx=None,
+                 val_genes_idx=None,
+                 ):
 
-        # If training genes are specified (CV fold), use them
         if train_genes is not None:
-            logging.info(f"Using {len(train_genes)} training genes from user input")
-            training_genes = train_genes
+            # If specific genes are provided for CV/training, intersect with the preprocessed genes
+            training_genes = list(set(train_genes) & set(adata_sc.uns['training_genes']))
+            logging.info(f"Using {len(training_genes)} training genes from user input (after intersection)")
         else:
-            # Get training genes from adata_sc.uns if available
-            if 'training_genes' in adata_sc.uns and 'training_genes' in adata_sp.uns:
-                training_genes = adata_sc.uns['training_genes']
-                logging.info(f"Using {len(training_genes)} training genes from adata.uns")
-            else:
-                # Use all genes shared between datasets
-                training_genes = list(set(adata_sc.var_names).intersection(set(adata_sp.var_names)))
-                logging.info(f"Using {len(training_genes)} shared genes between datasets")
+            # Use all preprocessed genes from prepare_data
+            training_genes = adata_sc.uns['training_genes']
+            logging.info(f"Using {len(training_genes)} training genes from preprocessing (intersection)")
 
         ## S matrix (single-cell)
         if isinstance(adata_sc.X, csc_matrix) or isinstance(adata_sc.X, csr_matrix):
@@ -126,14 +145,19 @@ class AdataPairDataset(Dataset):
             raise NotImplementedError
 
         # G matrix (spatial)
-        if isinstance(adata_sp.X, csc_matrix) or isinstance(adata_sp.X, csr_matrix):
-            self.G = torch.tensor(adata_sp[:, training_genes].X.toarray(), dtype=torch.float32)
-        elif isinstance(adata_sp.X, np.ndarray):
-            self.G = torch.tensor(adata_sp[:, training_genes].X, dtype=torch.float32)
+        if isinstance(adata_st.X, csc_matrix) or isinstance(adata_st.X, csr_matrix):
+            self.G = torch.tensor(adata_st[:, training_genes].X.toarray(), dtype=torch.float32)
+        elif isinstance(adata_st.X, np.ndarray):
+            self.G = torch.tensor(adata_st[:, training_genes].X, dtype=torch.float32)
         else:
-            X_type = type(adata_sp.X)
+            X_type = type(adata_st.X)
             logging.error(f"Spatial AnnData X has unrecognized type: {X_type}")
             raise NotImplementedError
+
+        # Store train/val genes indexes
+        self.train_genes_idx = train_genes_idx if train_genes_idx is not None else slice(None)
+        self.val_genes_idx = val_genes_idx if val_genes_idx is not None else slice(None)
+        # NOTE: When both indices are `None`, it defaults to using all genes for both training and validation
 
         # Store metadata
         self.training_genes = training_genes
@@ -148,5 +172,8 @@ class AdataPairDataset(Dataset):
         return {
             'S': self.S,
             'G': self.G,
-            'training_genes': self.training_genes
+            'training_genes': self.training_genes,
+            'train_genes_idx': self.train_genes_idx,
+            'val_genes_idx': self.val_genes_idx
+
         }
