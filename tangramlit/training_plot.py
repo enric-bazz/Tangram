@@ -163,7 +163,7 @@ def plot_filter_count(adata_map, target_count=None, figsize=(10, 5)):
         This is a useful diagnostic plot as it shows how far the final number of cells is from the target.
         It should be related to the corresponding term in the loss function.
     """
-    n_spots = adata_map.X.squeeze().shape[0]
+    n_spots = adata_map.X.shape[1]
 
     # Set target count if not provided
     if target_count is None:
