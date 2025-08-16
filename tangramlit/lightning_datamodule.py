@@ -36,8 +36,8 @@ class MyDataModule(pl.LightningDataModule):
         super().__init__()
         self.adata_sc = adata_sc
         self.adata_st = adata_st
-        self.input_genes = input_genes  # Allow passing specific genes for CV and training
-        self.refined_mode = refined_mode
+        self.input_genes = input_genes  # Allow passing specific genes for training
+        self.refined_mode = refined_mode  # Flag to require spatial coordinates for refined mode
         self.train_genes_idx = train_genes_idx
         self.val_genes_idx = val_genes_idx
 
@@ -91,13 +91,13 @@ class MyDataModule(pl.LightningDataModule):
         Execute after prepare_data() and before train_dataloader().
         Defines dataset based on the current training mode (stage variable).
         """
-        if stage == 'fit':
+        if stage == 'fit' or stage is None:
             self.train_dataset = AdataPairDataset(self.adata_sc,
                                                   self.adata_st,
                                                   mode='train',
                                                   train_genes_idx=self.train_genes_idx,
                                                   )
-        if stage == 'validate':
+        if stage == 'validate' or stage is None:
             self.val_dataset = AdataPairDataset(self.adata_sc,
                                                 self.adata_st,
                                                 mode='val',
