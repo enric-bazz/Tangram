@@ -17,7 +17,7 @@ class MyDataModule(pl.LightningDataModule):
     def __init__(self,
                  adata_sc=None,
                  adata_st=None,
-                 train_genes=None,
+                 input_genes=None,
                  refined_mode=False,
                  train_genes_idx=None,
                  val_genes_idx=None
@@ -28,7 +28,7 @@ class MyDataModule(pl.LightningDataModule):
         Args:
             adata_sc (AnnData): Single-cell AnnData object.
             adata_st (AnnData): Spatial AnnData object.
-            train_genes (list): List of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
+            input_genes (list): List of input genes to use for training. If None, use all genes shared between adata_sc and adata_st.
             refined_mode (bool): Whether to use refined mode for training. If True, use refined mode. If False, use unrefined mode. Default is False.
             train_genes_idx (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
             val_genes_idx (list): List of indices of genes to use for validation.
@@ -36,7 +36,7 @@ class MyDataModule(pl.LightningDataModule):
         super().__init__()
         self.adata_sc = adata_sc
         self.adata_st = adata_st
-        self.train_genes = train_genes  # Allow passing specific genes for CV and training
+        self.input_genes = input_genes  # Allow passing specific genes for CV and training
         self.refined_mode = refined_mode
         self.train_genes_idx = train_genes_idx
         self.val_genes_idx = val_genes_idx
@@ -52,34 +52,33 @@ class MyDataModule(pl.LightningDataModule):
         Executed before setup() is called.
         """
 
-        # Preprocess data
-        # 1. Training genes
-        # Remove genes with zero counts
+        # Preprocess data - define adata.uns['training_genes'] (originally implemented in tg.mapping_utils.pp_adatas()
+        logging.info("Preprocessing data...")
+        # 1. Remove genes with zero counts
         self.adata_sc = self.adata_sc[:, np.array(self.adata_sc.X.sum(axis=0)).flatten() > 0]
         self.adata_st = self.adata_st[:, np.array(self.adata_st.X.sum(axis=0)).flatten() > 0]
 
-        # Execute Tangram preprocessing steps (originally implemented in tg.mapping_utils.pp_adatas()
-        logging.info("Preprocessing data...")
-
-        # remove all-zero-valued genes with scanpy utility
+        # 2. Remove all-zero-valued genes with scanpy utility
         sc.pp.filter_genes(self.adata_sc, min_cells=1)
         sc.pp.filter_genes(self.adata_st, min_cells=1)
 
-        # put all var indexes to lower case to align
+        # 3. Put all var indexes to lower case to align
         self.adata_sc.var.index = [g.lower() for g in self.adata_sc.var.index]
         self.adata_st.var.index = [g.lower() for g in self.adata_st.var.index]
 
-        # make genes unique
+        # 4. Make genes unique
         self.adata_sc.var_names_make_unique()
         self.adata_st.var_names_make_unique()
 
-        # Define training genes as intersection of input training genes and anndata var indexes
-        if self.train_genes is not None:
-            genes = list(set(self.train_genes) & set(self.adata_sc.var.index) & set(self.adata_st.var.index))
+        # 5. Define training genes as intersection of input training genes and anndata var indexes
+        if self.input_genes is not None:
+            genes = list(set(self.input_genes) & set(self.adata_sc.var.index) & set(self.adata_st.var.index))
+            logging.info(f"Using {len(genes)} training genes provided by user.")
         else:
             genes = list(set(self.adata_sc.var.index) & set(self.adata_st.var.index))
-        logging.info(f"{len(genes)} shared marker genes.")
+        logging.info(f"Using {len(genes)} shared marker genes.")
 
+        # 6. Store genes in adata.uns['training_genes']
         self.adata_sc.uns["training_genes"] = genes
         self.adata_st.uns["training_genes"] = genes
 
@@ -94,13 +93,15 @@ class MyDataModule(pl.LightningDataModule):
         """
         if stage == 'fit':
             self.train_dataset = AdataPairDataset(self.adata_sc,
-                                            self.adata_st,
-                                            mode='train',
-                                            )
+                                                  self.adata_st,
+                                                  mode='train',
+                                                  train_genes_idx=self.train_genes_idx,
+                                                  )
         if stage == 'validate':
             self.val_dataset = AdataPairDataset(self.adata_sc,
                                                 self.adata_st,
                                                 mode='val',
+                                                val_genes_idx=self.val_genes_idx,
                                                 )
 
     def train_dataloader(self):
@@ -140,7 +141,6 @@ class AdataPairDataset(Dataset):
     Args:
         adata_sc (AnnData): Single-cell AnnData object.
         adata_st (AnnData): Spatial AnnData object.
-        train_genes (list): List of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
         train_genes_idx (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
         val_genes_idx (list): List of indices of genes to use for validation.
         mode (str): Training mode. Can be 'train' or 'val'. Default is 'train'.
@@ -148,20 +148,14 @@ class AdataPairDataset(Dataset):
     def __init__(self,
                  adata_sc,
                  adata_st,
-                 train_genes=None,
+                 mode='train',
                  train_genes_idx=None,
                  val_genes_idx=None,
-                 mode='train',
                  ):
 
-        if train_genes is not None:
-            # If specific genes are provided for CV/training, intersect with the preprocessed genes
-            training_genes = list(set(train_genes) & set(adata_sc.uns['training_genes']))
-            logging.info(f"Using {len(training_genes)} training genes from user input (after intersection)")
-        else:
-            # Use all preprocessed genes from prepare_data
-            training_genes = adata_sc.uns['training_genes']
-            logging.info(f"Using {len(training_genes)} training genes from preprocessing (intersection)")
+        # Get training genes from adata.uns['training_genes'] (generated in prepare_data())
+        assert adata_sc.uns['training_genes'] == adata_st.uns['training_genes'], "Training genes must be the same for single-cell and spatial data."
+        training_genes = adata_sc.uns['training_genes']
 
         ## S matrix (single-cell)
         if isinstance(adata_sc.X, csc_matrix) or isinstance(adata_sc.X, csr_matrix):
