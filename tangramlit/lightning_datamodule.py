@@ -90,15 +90,18 @@ class MyDataModule(pl.LightningDataModule):
         Setup datasets for use in dataloaders.
         This method is called on every GPU separately.
         Execute after prepare_data() and before train_dataloader().
+        Defines dataset based on the current training mode (stage variable).
         """
-        if stage == 'fit' or stage is None:
+        if stage == 'fit':
             self.train_dataset = AdataPairDataset(self.adata_sc,
-                                                  self.adata_st,
-                                                  train_genes=self.train_genes,
-                                                  train_genes_idx=self.train_genes_idx,
-                                                  val_genes_idx=self.val_genes_idx
-                                                  )
-
+                                            self.adata_st,
+                                            mode='train',
+                                            )
+        if stage == 'validate':
+            self.val_dataset = AdataPairDataset(self.adata_sc,
+                                                self.adata_st,
+                                                mode='val',
+                                                )
 
     def train_dataloader(self):
         """
@@ -117,17 +120,38 @@ class MyDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         """
         Return a DataLoader for validation.
-
         """
+        return DataLoader(
+            self.val_dataset,
+            batch_size=1,  # Always use batch_size=1 as each item contains all data
+            shuffle=False,  # No need to shuffle as we have just one batch
+            num_workers=0,  # Process in the main thread
+            pin_memory=True,  # Speed up data transfer to GPU if using CUDA
+            collate_fn=lambda x: x[0]  # Prevent adding batch dimension [1, n_cells/spots, n_genes] => [n_cells/spots, n_genes]
+        )
 
 
 class AdataPairDataset(Dataset):
+    """
+    Dataset class for single-cell and spatial anndata objects.
+    Returns a single batch containing all data, sliced according to the provided indices and based on the
+    current mode.
+
+    Args:
+        adata_sc (AnnData): Single-cell AnnData object.
+        adata_st (AnnData): Spatial AnnData object.
+        train_genes (list): List of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
+        train_genes_idx (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
+        val_genes_idx (list): List of indices of genes to use for validation.
+        mode (str): Training mode. Can be 'train' or 'val'. Default is 'train'.
+    """
     def __init__(self,
                  adata_sc,
                  adata_st,
                  train_genes=None,
                  train_genes_idx=None,
                  val_genes_idx=None,
+                 mode='train',
                  ):
 
         if train_genes is not None:
@@ -159,7 +183,8 @@ class AdataPairDataset(Dataset):
             logging.error(f"Spatial AnnData X has unrecognized type: {X_type}")
             raise NotImplementedError
 
-        # Store train/val genes indexes
+        # Store mode and train/val genes indexes
+        self.mode = mode
         self.train_genes_idx = train_genes_idx if train_genes_idx is not None else slice(None)
         self.val_genes_idx = val_genes_idx if val_genes_idx is not None else slice(None)
         # NOTE: When both indices are `None`, it defaults to using all genes for both training and validation
@@ -174,11 +199,21 @@ class AdataPairDataset(Dataset):
         return 1
 
     def __getitem__(self, idx):
-        return {
-            'S': self.S,
-            'G': self.G,
-            'training_genes': self.training_genes,
-            'train_genes_idx': self.train_genes_idx,
-            'val_genes_idx': self.val_genes_idx
-
-        }
+        """
+        Returns sliced data according to the current mode.
+        """
+        # Return only the relevant slice based on mode
+        if self.mode == 'train':
+            return {
+                'S': self.S[:, self.train_genes_idx],
+                'G': self.G[:, self.train_genes_idx],
+                'genes_idx': self.train_genes_idx,
+                'training_genes': self.training_genes
+            }
+        else:  # validation mode
+            return {
+                'S': self.S[:, self.val_genes_idx],
+                'G': self.G[:, self.val_genes_idx],
+                'genes_idx': self.val_genes_idx,
+                'training_genes': self.training_genes
+            }
