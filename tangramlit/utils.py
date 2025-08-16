@@ -11,8 +11,6 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 from sklearn.metrics import auc
-from sklearn.model_selection import KFold
-from sklearn.model_selection import LeaveOneOut
 from tqdm import tqdm
 
 # from . import mapping_utils as mu
@@ -462,41 +460,6 @@ def compare_spatial_geneexp(adata_ge, adata_sp, adata_sc=None, genes=None):
     return df_g
 
 
-def cv_data_gen(adata_sc, adata_sp, cv_mode="loo"):
-    """ Generates pair of training/test gene indexes cross validation datasets
-
-    Args:
-        adata_sc (AnnData): single cell data
-        adata_sp (AnnData): gene spatial data
-        mode (str): Optional. support 'loo' and '10fold'. Default is 'loo'.
-
-    Yields:
-        tuple: list of train_genes, list of test_genes
-    """
-
-    # Check if training_genes key exist/is valid in adatas.uns
-    if "training_genes" not in adata_sc.uns.keys():
-        raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
-
-    if "training_genes" not in adata_sp.uns.keys():
-        raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
-
-    if not list(adata_sp.uns["training_genes"]) == list(adata_sc.uns["training_genes"]):
-        raise ValueError(
-            "Unmatched training_genes field in two Anndatas. Run `pp_adatas()`."
-        )
-
-    genes_array = np.array(adata_sp.uns["training_genes"])
-
-    if cv_mode == "loo":
-        cv = LeaveOneOut()
-    elif cv_mode == "10fold":
-        cv = KFold(n_splits=10)
-
-    for train_idx, test_idx in cv.split(genes_array):
-        train_genes = list(genes_array[train_idx])
-        test_genes = list(genes_array[test_idx])
-        yield train_genes, test_genes
 
 
 def cross_val(

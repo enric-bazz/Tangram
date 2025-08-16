@@ -53,7 +53,6 @@ class MyDataModule(pl.LightningDataModule):
         """
 
         # Preprocess data
-
         # 1. Training genes
         # Remove genes with zero counts
         self.adata_sc = self.adata_sc[:, np.array(self.adata_sc.X.sum(axis=0)).flatten() > 0]
@@ -114,6 +113,12 @@ class MyDataModule(pl.LightningDataModule):
             pin_memory=True,  # Speed up data transfer to GPU if using CUDA
             collate_fn=lambda x: x[0]  # Prevent adding batch dimension [1, n_cells/spots, n_genes] => [n_cells/spots, n_genes]
         )
+
+    def val_dataloader(self):
+        """
+        Return a DataLoader for validation.
+
+        """
 
 
 class AdataPairDataset(Dataset):
