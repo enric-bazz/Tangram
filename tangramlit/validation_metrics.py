@@ -3,7 +3,6 @@ Validation metrics for Tangram.
 The main validation metric presented in the original Tangram paper is the AUC in the (sparsity, score) plane.
 """
 
-import numpy as np
 import pandas as pd
 import scipy.stats as st
 import sklearn
@@ -71,7 +70,41 @@ Li, B., Zhang, W., Guo, C. et al. Benchmarking spatial and single-cell transcrip
 Nat Methods (2022). https://doi.org/10.1038/s41592-022-01480-9.
 """
 
+
 def ssim(raw, impute, scale='scale_max'):
+    """
+    Calculate SSIM values between columns of two 2D arrays.
+    raw, impute: numpy arrays of shape (n_spots, n_genes)
+    Returns: numpy array of shape (n_genes,)
+    """
+    # optional scaling
+    if scale == 'scale_max':
+        raw = scale_max(raw)
+        impute = scale_max(impute)
+    else:
+        print('Please note you do not scale data by max')
+
+    if raw.shape[1] != impute.shape[1]:
+        raise ValueError("raw and impute must have the same number of columns")
+
+    n_features = raw.shape[1]
+    ssim_values = np.zeros(n_features)
+
+    for j in range(n_features):
+        raw_col = raw[:, j]
+        impute_col = impute[:, j]
+
+        M = raw_col.max() if raw_col.max() > impute_col.max() else impute_col.max()
+
+        raw_col_2 = raw_col.reshape(-1, 1)
+        impute_col_2 = impute_col.reshape(-1, 1)
+
+        ssim_values[j] = cal_ssim(raw_col_2, impute_col_2, M)
+
+    return ssim_values
+
+
+def ssim_legacy(raw, impute, scale='scale_max'):
     """
     Calculate the SSIM value between two arrays.
     By default, the data are scaled by max value.
@@ -99,10 +132,31 @@ def ssim(raw, impute, scale='scale_max'):
             ssim_df = pd.DataFrame(ssim, index=["SSIM"], columns=[label])
             result = pd.concat([result, ssim_df], axis=1)
         return result
-    else:
-        print("columns error")
+
 
 def pearsonr(raw, impute):
+    """
+    Calculate Pearson correlation coefficient between corresponding columns
+    of two 2D arrays.
+
+    raw, impute: numpy arrays of shape (n_samples, n_features)
+    Returns: numpy array of shape (n_features,)
+    """
+    if raw.shape[1] != impute.shape[1]:
+        raise ValueError("raw and impute must have the same number of columns")
+
+    n_features = raw.shape[1]
+    pearson_values = np.zeros(n_features)
+
+    for j in range(n_features):
+        raw_col = raw[:, j]
+        impute_col = impute[:, j]
+        pearson_values[j], _ = stats.pearsonr(raw_col, impute_col)
+
+    return pearson_values
+
+
+def pearsonr_legacy(raw, impute):
     """
     Calculate the Pearson correlation coefficient between two arrays.
     """
@@ -116,7 +170,42 @@ def pearsonr(raw, impute):
             result = pd.concat([result, pearson_df], axis=1)
         return result
 
+
 def JS(raw, impute, scale='scale_plus'):
+    """
+    Calculate the Jensen-Shannon divergence between corresponding columns
+    of two 2D arrays.
+
+    raw, impute: numpy arrays of shape (n_samples, n_features)
+    Returns: numpy array of shape (n_features,)
+    """
+    if scale == 'scale_plus':
+        raw = scale_plus(raw)
+        impute = scale_plus(impute)
+    else:
+        print('Please note you do not scale data by plus')
+
+    if raw.shape[1] != impute.shape[1]:
+        raise ValueError("raw and impute must have the same number of columns")
+
+    n_features = raw.shape[1]
+    js_values = np.zeros(n_features)
+
+    for j in range(n_features):
+        raw_col = raw[:, j]
+        impute_col = impute[:, j]
+
+        # Ensure they are proper probability distributions (avoid log(0))
+        raw_col = np.clip(raw_col, 1e-12, 1.0)
+        impute_col = np.clip(impute_col, 1e-12, 1.0)
+
+        M = 0.5 * (raw_col + impute_col)
+        js_values[j] = 0.5 * stats.entropy(raw_col, M) + 0.5 * stats.entropy(impute_col, M)
+
+    return js_values
+
+
+def JS_legacy(raw, impute, scale='scale_plus'):
     """
     Calculate the Jensen-Shannon divergence between two arrays.
     By default, the data are scaled in a column-wise softmax fashion.
@@ -140,7 +229,38 @@ def JS(raw, impute, scale='scale_plus'):
             result = pd.concat([result, KL_df], axis=1)
         return result
 
+
 def RMSE(raw, impute, scale='zscore'):
+    """
+    Calculate the root mean squared error between corresponding columns
+    of two 2D arrays.
+
+    raw, impute: numpy arrays of shape (n_samples, n_features)
+    Returns: numpy array of shape (n_features,)
+    """
+    if scale == 'zscore':
+        raw = scale_z_score(raw)
+        impute = scale_z_score(impute)
+    else:
+        print('Please note you do not scale data by zscore')
+
+    if raw.shape[1] != impute.shape[1]:
+        raise ValueError("raw and impute must have the same number of columns")
+
+    n_features = raw.shape[1]
+    rmse_values = np.zeros(n_features)
+
+    for j in range(n_features):
+        raw_col = raw[:, j]
+        impute_col = impute[:, j]
+
+        diff = raw_col - impute_col
+        rmse_values[j] = np.sqrt(np.mean(diff ** 2))
+
+    return rmse_values
+
+
+def RMSE_legacy(raw, impute, scale='zscore'):
     """
     Calculate the root mean squared error between two arrays.
     By default, the data are scaled by z-score.
@@ -164,7 +284,80 @@ def RMSE(raw, impute, scale='zscore'):
         return result
 
 
+import numpy as np
+from scipy import stats
+
+
 def cal_ssim(im1, im2, M):
+    """
+    Calculate the SSIM value between two arrays.
+    Parameters
+    -------
+    im1 : array-like, shape (n_samples, 1) or (n_samples, n_features)
+    im2 : array-like, same shape as im1
+    M   : float, max value among im1 and im2
+    """
+    im1 = np.asarray(im1)
+    im2 = np.asarray(im2)
+
+    assert im1.shape == im2.shape
+    assert im1.ndim == 2
+
+    mu1 = im1.mean()
+    mu2 = im2.mean()
+    sigma1 = np.sqrt(((im1 - mu1) ** 2).mean())
+    sigma2 = np.sqrt(((im2 - mu2) ** 2).mean())
+    sigma12 = ((im1 - mu1) * (im2 - mu2)).mean()
+
+    k1, k2, L = 0.01, 0.03, M
+    C1 = (k1 * L) ** 2
+    C2 = (k2 * L) ** 2
+    C3 = C2 / 2
+
+    l12 = (2 * mu1 * mu2 + C1) / (mu1 ** 2 + mu2 ** 2 + C1)
+    c12 = (2 * sigma1 * sigma2 + C2) / (sigma1 ** 2 + sigma2 ** 2 + C2)
+    s12 = (sigma12 + C3) / (sigma1 * sigma2 + C3)
+
+    return l12 * c12 * s12
+
+
+def scale_max(arr):
+    """
+    Scale columns by dividing each by its maximum value.
+    Input: arr (n_samples, n_features)
+    Output: scaled array (same shape)
+    """
+    arr = np.asarray(arr, dtype=float)
+    max_vals = np.max(arr, axis=0)
+    # Avoid division by zero
+    max_vals[max_vals == 0] = 1.0
+    return arr / max_vals
+
+
+def scale_z_score(arr):
+    """
+    Scale columns by z-score: mean=0, std=1
+    Input: arr (n_samples, n_features)
+    Output: scaled array (same shape)
+    """
+    arr = np.asarray(arr, dtype=float)
+    return stats.zscore(arr, axis=0, ddof=0)
+
+
+def scale_plus(arr):
+    """
+    Scale columns so they sum to 1 (softmax-like normalization).
+    Input: arr (n_samples, n_features)
+    Output: scaled array (same shape)
+    """
+    arr = np.asarray(arr, dtype=float)
+    sums = np.sum(arr, axis=0)
+    # Avoid division by zero
+    sums[sums == 0] = 1.0
+    return arr / sums
+
+
+def cal_ssim_legacy(im1, im2, M):
     """
         calculate the SSIM value between two arrays.
     Parameters
@@ -191,7 +384,7 @@ def cal_ssim(im1, im2, M):
 
     return ssim
 
-def scale_max(df):
+def scale_max_legacy(df):
     """
         Divided by maximum value to scale the data between [0,1].
         Please note that these dataframe are scaled data by column.
@@ -205,7 +398,7 @@ def scale_max(df):
         result = pd.concat([result, content], axis=1)
     return result
 
-def scale_z_score(df):
+def scale_z_score_legacy(df):
     """
         scale the data by Z-score to conform the data to the standard normal distribution, that is,
         the mean value is 0, the standard deviation is 1, and the conversion function is 0.
@@ -221,7 +414,7 @@ def scale_z_score(df):
         result = pd.concat([result, content], axis=1)
     return result
 
-def scale_plus(df):
+def scale_plus_legacy(df):
     """
         Divided by the sum of the data to scale the data between (0,1), and the sum of data is 1.
         Please note that these dataframe are scaled data by column.
