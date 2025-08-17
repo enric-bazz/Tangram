@@ -19,8 +19,8 @@ class MyDataModule(pl.LightningDataModule):
                  adata_st=None,
                  input_genes=None,
                  refined_mode=False,
-                 train_genes_idx=None,
-                 val_genes_idx=None
+                 train_genes_names=None,
+                 val_genes_names=None
                  ):
         """
         Lightly preprocessed single-cell and spatial anndata objects.
@@ -30,16 +30,16 @@ class MyDataModule(pl.LightningDataModule):
             adata_st (AnnData): Spatial AnnData object.
             input_genes (list): List of input genes to use for training. If None, use all genes shared between adata_sc and adata_st.
             refined_mode (bool): Whether to use refined mode for training. If True, use refined mode. If False, use unrefined mode. Default is False.
-            train_genes_idx (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
-            val_genes_idx (list): List of indices of genes to use for validation.
+            train_genes_names (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
+            val_genes_names (list): List of indices of genes to use for validation.
         """
         super().__init__()
         self.adata_sc = adata_sc
         self.adata_st = adata_st
         self.input_genes = input_genes  # Allow passing specific genes for training
         self.refined_mode = refined_mode  # Flag to require spatial coordinates for refined mode
-        self.train_genes_idx = train_genes_idx
-        self.val_genes_idx = val_genes_idx
+        self.train_genes_names = train_genes_names
+        self.val_genes_names = val_genes_names
 
         # 2. Compute spatial neighbors needed for the neighborhood extension of Tangram
         if self.refined_mode:
@@ -95,13 +95,13 @@ class MyDataModule(pl.LightningDataModule):
             self.train_dataset = AdataPairDataset(self.adata_sc,
                                                   self.adata_st,
                                                   mode='train',
-                                                  train_genes_idx=self.train_genes_idx,
+                                                  train_genes_names=self.train_genes_names,
                                                   )
         if stage == 'validate' or stage is None:
             self.val_dataset = AdataPairDataset(self.adata_sc,
                                                 self.adata_st,
                                                 mode='val',
-                                                val_genes_idx=self.val_genes_idx,
+                                                val_genes_names=self.val_genes_names,
                                                 )
 
     def train_dataloader(self):
@@ -141,16 +141,16 @@ class AdataPairDataset(Dataset):
     Args:
         adata_sc (AnnData): Single-cell AnnData object.
         adata_st (AnnData): Spatial AnnData object.
-        train_genes_idx (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
-        val_genes_idx (list): List of indices of genes to use for validation.
+        train_genes_names (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
+        val_genes_names (list): List of indices of genes to use for validation.
         mode (str): Training mode. Can be 'train' or 'val'. Default is 'train'.
     """
     def __init__(self,
                  adata_sc,
                  adata_st,
                  mode='train',
-                 train_genes_idx=None,
-                 val_genes_idx=None,
+                 train_genes_names=None,
+                 val_genes_names=None,
                  ):
 
         # Get training genes from adata.uns['training_genes'] (generated in prepare_data())
@@ -177,10 +177,10 @@ class AdataPairDataset(Dataset):
             logging.error(f"Spatial AnnData X has unrecognized type: {X_type}")
             raise NotImplementedError
 
-        # Store mode and train/val genes indexes
+        # Store mode and train/val genes indexes retrieved from names
         self.mode = mode
-        self.train_genes_idx = train_genes_idx if train_genes_idx is not None else slice(None)
-        self.val_genes_idx = val_genes_idx if val_genes_idx is not None else slice(None)
+        self.train_genes_idx = gene_names_to_indices(gene_names=train_genes_names, adata=adata_st) if train_genes_names is not None else slice(None)
+        self.val_genes_idx = gene_names_to_indices(gene_names=val_genes_names, adata=adata_st) if val_genes_names is not None else slice(None)
         # NOTE: When both indices are `None`, it defaults to using all genes for both training and validation
 
         # Store metadata
@@ -211,3 +211,37 @@ class AdataPairDataset(Dataset):
                 'genes_idx': self.val_genes_idx,
                 'training_genes': self.training_genes
             }
+
+def gene_names_to_indices(gene_names, adata):
+    """
+    Get indices of genes in AnnData object's var, handling case sensitivity.
+    Only includes genes that are present in adata.uns['training_genes'].
+
+    Args:
+        gene_names (list): List of gene names to find indices for
+        adata (AnnData): AnnData object to search in
+
+    Returns:
+        list: List of indices corresponding to the input gene names
+
+    Raises:
+        ValueError: If any gene name is not found in the AnnData object
+        KeyError: If 'training_genes' is not present in adata.uns
+    """
+
+    # Find indices for each gene name
+    indices = []
+    missing_genes = []
+
+    for gene in gene_names:
+        gene_lower = gene.lower()
+        # Check if gene is in training_genes
+        if gene_lower in adata.uns['training_genes']:
+            indices.append(adata.uns['training_genes'].index(gene_lower))
+        else:
+            missing_genes.append(gene)
+
+    if missing_genes:
+        logging.warning(f"The following genes were not in training genes: {missing_genes} (removed with preprocessing).")
+
+    return indices
