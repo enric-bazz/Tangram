@@ -1,20 +1,81 @@
 """
-Validation metrics for Tangram. The metrics and scaling procedures are taken from the following paper:
-Li, B., Zhang, W., Guo, C. et al. Benchmarking spatial and single-cell transcriptomics integration methods for transcript distribution prediction and cell type deconvolution.
-Nat Methods (2022). https://doi.org/10.1038/s41592-022-01480-9.
+Validation metrics for Tangram.
+The main validation metric presented in the original Tangram paper is the AUC in the (sparsity, score) plane.
 """
+
 import numpy as np
 import pandas as pd
 import scipy.stats as st
-from scipy import stats
+import sklearn
+import torch
+from sklearn.metrics import auc
 
+
+def poly2_auc(gv_scores, gene_sparsity, pol_deg=2):
+    """
+    Compute Tangram most important evalutaion metric.
+    Fit a 2nd-degree polynomial between gv_scores and gene_sparsity,
+    clip to [0,1], and return the area under the curve (AUC).
+
+    Parameters
+    ----------
+    gv_scores : array-like or torch.Tensor
+        Cosine similarity scores per gene.
+    gene_sparsity : array-like or torch.Tensor
+        Gene sparsity values per gene (0-1).
+    pol_deg : int
+        Degree of polynomial (default 2).
+
+    Returns
+    -------
+    auc_score : float
+        Area under the polynomial curve over x in [0,1].
+    """
+
+    # Convert to numpy arrays
+    xs = np.array(gv_scores).flatten()
+    ys = np.array(gene_sparsity).flatten()
+
+    # Fit polynomial
+    pol_cs = np.polyfit(xs, ys, pol_deg)
+    pol = np.poly1d(pol_cs)
+
+    # Sample polynomial on [0,1]
+    pol_xs = np.linspace(0, 1, 50)
+    pol_ys = pol(pol_xs)
+
+    # Clip values to [0,1]
+    pol_ys = np.clip(pol_ys, 0, 1)
+
+    # Include real roots where y=0 inside [0,1]
+    roots = pol.r
+    for r in roots:
+        if np.isreal(r) and 0 <= r.real <= 1:
+            pol_xs = np.append(pol_xs, r.real)
+            pol_ys = np.append(pol_ys, 0)
+
+    # Sort x values for proper integration
+    sort_idx = np.argsort(pol_xs)
+    pol_xs = pol_xs[sort_idx]
+    pol_ys = pol_ys[sort_idx]
+
+    # Compute AUC
+    auc_score = auc(pol_xs, pol_ys)
+    return float(auc_score)
+
+
+
+"""
+Validation metrics for vanilla Tangram benchmarking . The metrics and scaling procedures are taken from the following paper:
+Li, B., Zhang, W., Guo, C. et al. Benchmarking spatial and single-cell transcriptomics integration methods for transcript distribution prediction and cell type deconvolution.
+Nat Methods (2022). https://doi.org/10.1038/s41592-022-01480-9.
+"""
 
 def ssim(raw, impute, scale='scale_max'):
     """
     Calculate the SSIM value between two arrays.
     By default, the data are scaled by max value.
     """
-
     if scale == 'scale_max':
         raw = scale_max(raw)
         impute = scale_max(impute)
@@ -106,15 +167,12 @@ def RMSE(raw, impute, scale='zscore'):
 def cal_ssim(im1, im2, M):
     """
         calculate the SSIM value between two arrays.
-
     Parameters
         -------
         im1: array1, shape dimension = 2
         im2: array2, shape dimension = 2
         M: the max value in [im1, im2]
-
-    """
-
+    """    
     assert len(im1.shape) == 2 and len(im2.shape) == 2
     assert im1.shape == im2.shape
     mu1 = im1.mean()
@@ -133,59 +191,211 @@ def cal_ssim(im1, im2, M):
 
     return ssim
 
-
 def scale_max(df):
     """
         Divided by maximum value to scale the data between [0,1].
         Please note that these dataframe are scaled data by column.
-
         Parameters
         -------
         df: dataframe, each col is a feature.
-
     """
-
     result = pd.DataFrame()
     for label, content in df.items():
         content = content / content.max()
         result = pd.concat([result, content], axis=1)
     return result
 
-
 def scale_z_score(df):
     """
         scale the data by Z-score to conform the data to the standard normal distribution, that is,
         the mean value is 0, the standard deviation is 1, and the conversion function is 0.
-        Please note that these dataframe are scaled data by column.
-
-
+        Please note that these dataframe are scaled data by column.     
     Parameters
         -------
         df: dataframe, each col is a feature.
-
-        """
-
+    """
     result = pd.DataFrame()
     for label, content in df.items():
-        content = stats.zscore(content)
+        content = st.zscore(content)
         content = pd.DataFrame(content, columns=[label])
         result = pd.concat([result, content], axis=1)
     return result
-
 
 def scale_plus(df):
     """
         Divided by the sum of the data to scale the data between (0,1), and the sum of data is 1.
         Please note that these dataframe are scaled data by column.
-
         Parameters
         -------
         df: dataframe, each col is a feature.
-
     """
-
     result = pd.DataFrame()
     for label, content in df.items():
         content = content / content.sum()
         result = pd.concat([result, content], axis=1)
     return result
+
+""" 
+Validation metric dor the refined Tangram version benchmarking. The metrics are taken from the paper:
+Refinement Strategies for Tangram for Reliable Single-Cell to Spatial Mapping. Stahl, et al (2025), https://doi.org/10.1101/2025.01.27.634996.
+"""
+
+# METRICS FOR GROUND TRUTH COMPARISONS (require annotated spatial data, real or synthetic)
+
+def cosine_similarity(true_values, pred_values, axis):
+    """
+    Compute the cosine similarity between true and predicted values
+    Args:
+        true_values (Array): Ground truth (k,j)
+        pred_values (Array): Predicted values (r,k,j)
+        axis (int): Axis where to perform the comparison, can be 1 or 2
+    Returns:
+        Array: Cosine similarity values (r,k) o r(r,j)
+    Example:
+        Gene expression prediction correctness for each gene along the spots: n_runs x n_genes x n_spots => n_runs x n_genes
+        Gene expression prediction correctness for each spot along the genes: n_runs x n_genes x n_spots => n_runs x n_spots
+    """
+    return np.array(torch.nn.functional.cosine_similarity(torch.Tensor(pred_values),
+                                                          torch.Tensor(true_values),
+                                                          dim=axis))
+
+
+def categorical_cross_entropy(true_probs, pred_probs_cube):
+    """
+    Compute the categorical cross-entropy between true and predicted probabilities cube along the last axis
+    Args:
+        true_probs (Array): Ground truth (i,j)
+        pred_probs_cube (Array): Predicted values (r,i,j)
+    Returns:
+        Array: Cross-entropy values (r,i)
+    Example:
+        Cell mapping correctness for each cell along the spots: n_runs x n_cells x n_spots => n_runs x n_cells
+    """
+    entropy = []
+    for run in range(pred_probs_cube.shape[0]):
+        tmp = []
+        for i in range(pred_probs_cube.shape[1]):
+            tmp.append(sklearn.metrics.log_loss([true_probs[i].argmax()], np.array([pred_probs_cube[run, i]]),
+                                                labels=range(true_probs.shape[1]), normalize=False))
+        entropy.append(tmp)
+    return np.array(entropy) / np.array(entropy).mean(axis=0).max()
+
+
+def multi_label_categorical_cross_entropy(true_probs, pred_probs_cube):
+    """
+    Compute the multi-label categorical cross-entropy between true and predicted probabilities cube along the last axis
+    Args:
+        true_probs (Array): Ground truth (i,j)
+        pred_probs_cube (Array): Predicted values (r,i,j)
+    Returns:
+        Array: Multi-label cross-entropy values (r,i)
+    Example:
+        Cell type mapping correctness for each cell type along the spots: n_runs x n_celltypes x n_spots => n_runs x n_celltypes
+    """
+    entropy = []
+    for run in range(pred_probs_cube.shape[0]):
+        tmp = []
+        for i in range(pred_probs_cube.shape[1]):
+            tmp.append(sklearn.metrics.log_loss(np.array([true_probs[i], 1 - true_probs[i]]).argmax(axis=0),
+                                                np.array([pred_probs_cube[run, i], 1 - pred_probs_cube[run, i]]).T,
+                                                labels=[0, 1], normalize=True))
+        entropy.append(tmp)
+    return np.array(entropy) / np.array(entropy).mean(axis=0).max()
+
+
+# METRICS FOR TRAINING RUN COMPARISONS
+
+def pearson_corr(cube):
+    """
+    Compute the pearson correlation for the first axis
+    Args:
+        cube (Array): Values (r,n,j)
+    Returns:
+        Array: All pairwise Pearson correlations (r x r)
+    Example:
+        Cell (type) mapping or gene expression prediction consistency: n_runs x n_genes/cell(type)s x n_spots => n_runpairs
+    """
+    idx = np.tril_indices(cube.shape[0], -1)
+    return np.corrcoef(np.reshape(cube, (cube.shape[0], -1)))[idx]
+
+
+def pearson_corr_over_axis(cube, axis):
+    """
+    Compute the pearson correlation for a given axis, averaged across all pairwise correlation from the first axis
+    Args:
+        cube (Array): Values (r,n,j)
+        axis (int): Axis, can be 1 or 2
+    Returns:
+        Array: Mean Pearson correlations along a specific axis (n) or (j)
+    Example:
+        Cell (type) mapping or gene expression prediction consistency: n_runs x n_genes/cell(type)s x n_spots => n_genes/cell(type)s or n_spots
+    """
+    all_pearsons = []
+    idx = np.tril_indices(cube.shape[0], -1)
+    if axis == 1:
+        for i in range(cube.shape[1]):
+            all_pearsons.append(np.corrcoef(cube[:, i, :])[idx].mean())
+    else:  # axis == 2
+        for i in range(cube.shape[2]):
+            all_pearsons.append(np.corrcoef(cube[:, :, i])[idx].mean())
+    return np.array(all_pearsons)
+
+
+def vote_entropy(pred_probs_cube):
+    """
+    Compute the normalized vote entropy across the last axis
+    Args:
+        pred_probs_cube (Array): Values (r,i,j)
+    Returns:
+        Array: Vote entropy values (r,i)
+    Example:
+        Cell mapping agreement: n_runs x n_cells x n_spots => n_runs x n_cells
+    """
+    votes_encoded = np.zeros(pred_probs_cube.shape)
+    votes = pred_probs_cube.argmax(axis=2)
+    for run in range(pred_probs_cube.shape[0]):
+        votes_encoded[run, np.arange(pred_probs_cube.shape[1]), votes[run]] = 1
+    return st.entropy(votes_encoded.mean(axis=0), axis=1) / np.log(pred_probs_cube.shape[2])
+
+
+def multi_label_vote_entropy(pred_probs_cube):
+    """
+    Compute the normalized multi-label vote entropy
+    Args:
+        pred_probs_cube (Array): Values (r,i,j)
+    Returns:
+        Array: Multi-label vote entropy values (r,i,j)
+    Example:
+        Cell type mapping agreement: n_runs x n_celltypes x n_spots => n_runs x n_celltypes x n_spots
+    """
+    votes_encoded = np.round(pred_probs_cube)
+    return st.entropy(np.array([votes_encoded.mean(axis=0), 1 - votes_encoded.mean(axis=0)]), axis=0) / np.log(
+        2)
+
+
+def consensus_entropy(pred_probs_cube):
+    """
+    Compute the normalized consensus entropy across the last axis
+    Args:
+        pred_probs_cube (Array): Values (r,i,j)
+    Returns:
+        Array: Consensus entropy values (r,i)
+    Example:
+        Cell mapping certainty: n_runs x n_cells x n_spots => n_runs x n_cells
+    """
+    consensus_mapping = pred_probs_cube.mean(axis=0)
+    return st.entropy(consensus_mapping, axis=1) / np.log(pred_probs_cube.shape[2])
+
+
+def multi_label_consensus_entropy(pred_probs_cube):
+    """
+    Compute the normalized multi-label consensus entropy
+    Args:
+        pred_probs_cube (Array): Values (r,i,j)
+    Returns:
+        Array: Multi-label consensus entropy values (r,i,j)
+    Example:
+        Cell type mapping certainty: n_runs x n_celltypes x n_spots => n_runs x n_celltypes x n_spots
+    """
+    consensus_mapping = pred_probs_cube.mean(axis=0)
+    return st.entropy(np.array([consensus_mapping, 1 - consensus_mapping]), axis=0) / np.log(2)
