@@ -3,7 +3,7 @@ Validation metrics for Tangram.
 The main validation metric presented in the original Tangram paper is the AUC in the (sparsity, score) plane.
 """
 
-import pandas as pd
+import numpy as np
 import scipy.stats as st
 import sklearn
 import torch
@@ -81,16 +81,14 @@ def ssim(raw, impute, scale='scale_max'):
     if scale == 'scale_max':
         raw = scale_max(raw)
         impute = scale_max(impute)
-    else:
-        print('Please note you do not scale data by max')
 
     if raw.shape[1] != impute.shape[1]:
-        raise ValueError("raw and impute must have the same number of columns")
+        raise ValueError("Validation metrics error: raw and impute must have the same number of columns")
 
-    n_features = raw.shape[1]
-    ssim_values = np.zeros(n_features)
+    n_genes = raw.shape[1]
+    ssim_values = np.zeros(n_genes)
 
-    for j in range(n_features):
+    for j in range(n_genes):
         raw_col = raw[:, j]
         impute_col = impute[:, j]
 
@@ -103,72 +101,26 @@ def ssim(raw, impute, scale='scale_max'):
 
     return ssim_values
 
-
-def ssim_legacy(raw, impute, scale='scale_max'):
-    """
-    Calculate the SSIM value between two arrays.
-    By default, the data are scaled by max value.
-    """
-    if scale == 'scale_max':
-        raw = scale_max(raw)
-        impute = scale_max(impute)
-    else:
-        print('Please note you do not scale data by max')
-    if raw.shape[1] == impute.shape[1]:
-        result = pd.DataFrame()
-        for label in raw.columns:
-            raw_col = raw.loc[:, label]
-            impute_col = impute.loc[:, label]
-
-            M = [raw_col.max(), impute_col.max()][raw_col.max() > impute_col.max()]
-            raw_col_2 = np.array(raw_col)
-            raw_col_2 = raw_col_2.reshape(raw_col_2.shape[0], 1)
-
-            impute_col_2 = np.array(impute_col)
-            impute_col_2 = impute_col_2.reshape(impute_col_2.shape[0], 1)
-
-            ssim = cal_ssim(raw_col_2, impute_col_2, M)
-
-            ssim_df = pd.DataFrame(ssim, index=["SSIM"], columns=[label])
-            result = pd.concat([result, ssim_df], axis=1)
-        return result
-
-
 def pearsonr(raw, impute):
     """
     Calculate Pearson correlation coefficient between corresponding columns
     of two 2D arrays.
 
-    raw, impute: numpy arrays of shape (n_samples, n_features)
-    Returns: numpy array of shape (n_features,)
+    raw, impute: numpy arrays of shape (n_samples, n_genes)
+    Returns: numpy array of shape (n_genes,)
     """
     if raw.shape[1] != impute.shape[1]:
-        raise ValueError("raw and impute must have the same number of columns")
+        raise ValueError("Validation metrics error: raw and impute must have the same number of columns")
 
-    n_features = raw.shape[1]
-    pearson_values = np.zeros(n_features)
+    n_genes = raw.shape[1]
+    pearson_values = np.zeros(n_genes)
 
-    for j in range(n_features):
+    for j in range(n_genes):
         raw_col = raw[:, j]
         impute_col = impute[:, j]
-        pearson_values[j], _ = stats.pearsonr(raw_col, impute_col)
+        pearson_values[j], _ = st.pearsonr(raw_col, impute_col)
 
     return pearson_values
-
-
-def pearsonr_legacy(raw, impute):
-    """
-    Calculate the Pearson correlation coefficient between two arrays.
-    """
-    if raw.shape[1] == impute.shape[1]:
-        result = pd.DataFrame()
-        for label in raw.columns:
-            raw_col = raw.loc[:, label]
-            impute_col = impute.loc[:, label]
-            pearsonr, _ = st.pearsonr(raw_col, impute_col)
-            pearson_df = pd.DataFrame(pearsonr, index=["Pearson"], columns=[label])
-            result = pd.concat([result, pearson_df], axis=1)
-        return result
 
 
 def JS(raw, impute, scale='scale_plus'):
@@ -176,22 +128,20 @@ def JS(raw, impute, scale='scale_plus'):
     Calculate the Jensen-Shannon divergence between corresponding columns
     of two 2D arrays.
 
-    raw, impute: numpy arrays of shape (n_samples, n_features)
-    Returns: numpy array of shape (n_features,)
+    raw, impute: numpy arrays of shape (n_samples, n_genes)
+    Returns: numpy array of shape (n_genes,)
     """
     if scale == 'scale_plus':
         raw = scale_plus(raw)
         impute = scale_plus(impute)
-    else:
-        print('Please note you do not scale data by plus')
 
     if raw.shape[1] != impute.shape[1]:
-        raise ValueError("raw and impute must have the same number of columns")
+        raise ValueError("Validation metrics error: raw and impute must have the same number of columns")
 
-    n_features = raw.shape[1]
-    js_values = np.zeros(n_features)
+    n_genes = raw.shape[1]
+    js_values = np.zeros(n_genes)
 
-    for j in range(n_features):
+    for j in range(n_genes):
         raw_col = raw[:, j]
         impute_col = impute[:, j]
 
@@ -200,34 +150,9 @@ def JS(raw, impute, scale='scale_plus'):
         impute_col = np.clip(impute_col, 1e-12, 1.0)
 
         M = 0.5 * (raw_col + impute_col)
-        js_values[j] = 0.5 * stats.entropy(raw_col, M) + 0.5 * stats.entropy(impute_col, M)
+        js_values[j] = 0.5 * st.entropy(raw_col, M) + 0.5 * st.entropy(impute_col, M)
 
     return js_values
-
-
-def JS_legacy(raw, impute, scale='scale_plus'):
-    """
-    Calculate the Jensen-Shannon divergence between two arrays.
-    By default, the data are scaled in a column-wise softmax fashion.
-    """
-    if scale == 'scale_plus':
-        raw = scale_plus(raw)
-        impute = scale_plus(impute)
-    else:
-        print('Please note you do not scale data by plus')
-    if raw.shape[1] == impute.shape[1]:
-        result = pd.DataFrame()
-        for label in raw.columns:
-            raw_col = raw.loc[:, label]
-            impute_col = impute.loc[:, label]
-
-            #M = (raw_col + impute_col) / 2
-            M = pd.Series(data=sum(raw_col.values, impute_col.values), index=impute_col.index)
-            KL = 0.5 * st.entropy(raw_col, M) + 0.5 * st.entropy(impute_col, M)
-            KL_df = pd.DataFrame(KL, index=["JS"], columns=[label])
-
-            result = pd.concat([result, KL_df], axis=1)
-        return result
 
 
 def RMSE(raw, impute, scale='zscore'):
@@ -235,22 +160,20 @@ def RMSE(raw, impute, scale='zscore'):
     Calculate the root mean squared error between corresponding columns
     of two 2D arrays.
 
-    raw, impute: numpy arrays of shape (n_samples, n_features)
-    Returns: numpy array of shape (n_features,)
+    raw, impute: numpy arrays of shape (n_samples, n_genes)
+    Returns: numpy array of shape (n_genes,)
     """
     if scale == 'zscore':
         raw = scale_z_score(raw)
         impute = scale_z_score(impute)
-    else:
-        print('Please note you do not scale data by zscore')
 
     if raw.shape[1] != impute.shape[1]:
-        raise ValueError("raw and impute must have the same number of columns")
+        raise ValueError("Validation metrics error: raw and impute must have the same number of columns")
 
-    n_features = raw.shape[1]
-    rmse_values = np.zeros(n_features)
+    n_genes = raw.shape[1]
+    rmse_values = np.zeros(n_genes)
 
-    for j in range(n_features):
+    for j in range(n_genes):
         raw_col = raw[:, j]
         impute_col = impute[:, j]
 
@@ -260,40 +183,12 @@ def RMSE(raw, impute, scale='zscore'):
     return rmse_values
 
 
-def RMSE_legacy(raw, impute, scale='zscore'):
-    """
-    Calculate the root mean squared error between two arrays.
-    By default, the data are scaled by z-score.
-    """
-    if scale == 'zscore':
-        raw = scale_z_score(raw)
-        impute = scale_z_score(impute)
-    else:
-        print('Please note you do not scale data by zscore')
-    if raw.shape[1] == impute.shape[1]:
-        result = pd.DataFrame()
-        for label in raw.columns:
-            raw_col = raw.loc[:, label]
-            impute_col = impute.loc[:, label]
-
-            temp = pd.Series(data=sum(raw_col.values, -impute_col.values), index=impute_col.index)
-            RMSE = np.sqrt((temp ** 2).mean())
-            RMSE_df = pd.DataFrame(RMSE, index=["RMSE"], columns=[label])
-
-            result = pd.concat([result, RMSE_df], axis=1)
-        return result
-
-
-import numpy as np
-from scipy import stats
-
-
 def cal_ssim(im1, im2, M):
     """
     Calculate the SSIM value between two arrays.
     Parameters
     -------
-    im1 : array-like, shape (n_samples, 1) or (n_samples, n_features)
+    im1 : array-like, shape (n_samples, 1) or (n_samples, n_genes)
     im2 : array-like, same shape as im1
     M   : float, max value among im1 and im2
     """
@@ -324,7 +219,7 @@ def cal_ssim(im1, im2, M):
 def scale_max(arr):
     """
     Scale columns by dividing each by its maximum value.
-    Input: arr (n_samples, n_features)
+    Input: arr (n_samples, n_genes)
     Output: scaled array (same shape)
     """
     arr = np.asarray(arr, dtype=float)
@@ -337,17 +232,17 @@ def scale_max(arr):
 def scale_z_score(arr):
     """
     Scale columns by z-score: mean=0, std=1
-    Input: arr (n_samples, n_features)
+    Input: arr (n_samples, n_genes)
     Output: scaled array (same shape)
     """
     arr = np.asarray(arr, dtype=float)
-    return stats.zscore(arr, axis=0, ddof=0)
+    return st.zscore(arr, axis=0, ddof=0)
 
 
 def scale_plus(arr):
     """
     Scale columns so they sum to 1 (softmax-like normalization).
-    Input: arr (n_samples, n_features)
+    Input: arr (n_samples, n_genes)
     Output: scaled array (same shape)
     """
     arr = np.asarray(arr, dtype=float)
@@ -357,83 +252,13 @@ def scale_plus(arr):
     return arr / sums
 
 
-def cal_ssim_legacy(im1, im2, M):
-    """
-        calculate the SSIM value between two arrays.
-    Parameters
-        -------
-        im1: array1, shape dimension = 2
-        im2: array2, shape dimension = 2
-        M: the max value in [im1, im2]
-    """    
-    assert len(im1.shape) == 2 and len(im2.shape) == 2
-    assert im1.shape == im2.shape
-    mu1 = im1.mean()
-    mu2 = im2.mean()
-    sigma1 = np.sqrt(((im1 - mu1) ** 2).mean())
-    sigma2 = np.sqrt(((im2 - mu2) ** 2).mean())
-    sigma12 = ((im1 - mu1) * (im2 - mu2)).mean()
-    k1, k2, L = 0.01, 0.03, M
-    C1 = (k1 * L) ** 2
-    C2 = (k2 * L) ** 2
-    C3 = C2 / 2
-    l12 = (2 * mu1 * mu2 + C1) / (mu1 ** 2 + mu2 ** 2 + C1)
-    c12 = (2 * sigma1 * sigma2 + C2) / (sigma1 ** 2 + sigma2 ** 2 + C2)
-    s12 = (sigma12 + C3) / (sigma1 * sigma2 + C3)
-    ssim = l12 * c12 * s12
-
-    return ssim
-
-def scale_max_legacy(df):
-    """
-        Divided by maximum value to scale the data between [0,1].
-        Please note that these dataframe are scaled data by column.
-        Parameters
-        -------
-        df: dataframe, each col is a feature.
-    """
-    result = pd.DataFrame()
-    for label, content in df.items():
-        content = content / content.max()
-        result = pd.concat([result, content], axis=1)
-    return result
-
-def scale_z_score_legacy(df):
-    """
-        scale the data by Z-score to conform the data to the standard normal distribution, that is,
-        the mean value is 0, the standard deviation is 1, and the conversion function is 0.
-        Please note that these dataframe are scaled data by column.     
-    Parameters
-        -------
-        df: dataframe, each col is a feature.
-    """
-    result = pd.DataFrame()
-    for label, content in df.items():
-        content = st.zscore(content)
-        content = pd.DataFrame(content, columns=[label])
-        result = pd.concat([result, content], axis=1)
-    return result
-
-def scale_plus_legacy(df):
-    """
-        Divided by the sum of the data to scale the data between (0,1), and the sum of data is 1.
-        Please note that these dataframe are scaled data by column.
-        Parameters
-        -------
-        df: dataframe, each col is a feature.
-    """
-    result = pd.DataFrame()
-    for label, content in df.items():
-        content = content / content.sum()
-        result = pd.concat([result, content], axis=1)
-    return result
-
 """ 
-Validation metric dor the refined Tangram version benchmarking. The metrics are taken from the paper:
+Validation metrics for the refined Tangram benchmarking. The metrics are used to validate consistency across different mapping runs.
+Definitions are taken from the paper:
 Refinement Strategies for Tangram for Reliable Single-Cell to Spatial Mapping. Stahl, et al (2025), https://doi.org/10.1101/2025.01.27.634996.
 """
 
-# METRICS FOR GROUND TRUTH COMPARISONS (require annotated spatial data, real or synthetic)
+# METRICS FOR GROUND TRUTH COMPARISONS (might require annotated spatial data, real or synthetic)
 
 def cosine_similarity(true_values, pred_values, axis):
     """
