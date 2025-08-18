@@ -6,30 +6,17 @@ adata_sc = ad.read_h5ad(path + "/test_sc_crop.h5ad")
 adata_st = ad.read_h5ad(path + "/slice200_norm_reduced.h5ad")
 # considerably reduce the number of spots as refinements require to compute and store several versions of the neighbors graph
 
-
-# Standardize gene names to lowercase
-"""adata_sc.var_names = adata_sc.var_names.str.lower()
-adata_st.var_names = adata_st.var_names.str.lower()
-
-# Make gene names unique if they aren't already
-adata_sc.var_names_make_unique()
-adata_st.var_names_make_unique()"""
-
-
 import tangramlit as tg
 
 # Set parameters for mapping
-mode = "filter"
+mode = "vanilla"
 target_count = None
 cluster_label = "cluster_labels"
 
 # Set seed for reproducibility
 random_state = 123
 
-
-
-
-"""ad_map_lt, mapper = tg.map_cells_to_space(
+ad_map_lt, mapper = tg.map_cells_to_space(
     adata_sc,
     adata_st,
     mode=mode,
@@ -52,8 +39,6 @@ random_state = 123
     lambda_moran=1,
     lambda_geary=1 ,
     )
-## Create train/val split to test
-import numpy as np
 
 # Plot loss terms
 tg.plot_loss_terms(adata_map=ad_map_lt, log_scale=False)
@@ -78,6 +63,29 @@ shared_genes = [sc_genes[gene_lower] for gene_lower in shared_lower]
 if random_state is not None:
     np.random.seed(random_state)
 
+# Test cv
+cv_results = tg.cross_validate_mapping(adata_sc,
+    adata_st,
+    mode=mode,
+   input_genes=shared_genes,
+    num_epochs=30,
+    lambda_d=1,
+    lambda_g1=1,
+    lambda_g2=1,
+    lambda_r=0.001,
+    lambda_count=1,
+    lambda_f_reg=1,
+    lambda_l2=1e-5,
+    lambda_l1=1e-5,
+    random_state=random_state,
+    lambda_sparsity_g1=1,
+    lambda_neighborhood_g1=1,
+    lambda_ct_islands=1,
+    cluster_label=cluster_label,
+    lambda_getis_ord=1,
+    lambda_moran=1,
+    lambda_geary=1 ,)
+
 # Shuffle the shared genes
 shared_genes = np.array(shared_genes)
 np.random.shuffle(shared_genes)
@@ -93,7 +101,7 @@ train_genes_idx_check = tg.get_gene_indices_me(gene_names=train_genes, adata=ada
 
 val_genes_idx = [i for i, gene in enumerate(adata_sc.var_names) if gene in val_genes]
 val_genes_idx_check = tg.get_gene_indices_me(gene_names=val_genes, adata=adata_st)
-
+"""
 #Train
 ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     adata_sc,
@@ -162,7 +170,7 @@ print(
     f"Overlapping split - Train size: {len(splits['overlapping_split'][0])}, Val size: {len(splits['overlapping_split'][1])}")
 print(f"Invalid split - Train size: {len(splits['invalid_split'][0])}, Val size: {len(splits['invalid_split'][1])}")
 
-"""ad_map_lt = tg.map_cells_to_space(
+ad_map_lt = tg.map_cells_to_space(
     adata_sc,
     adata_st,
     mode=mode,
@@ -186,7 +194,7 @@ print(f"Invalid split - Train size: {len(splits['invalid_split'][0])}, Val size:
     lambda_getis_ord=1,
     lambda_moran=1,
     lambda_geary=1 ,
-    )"""
+    )
 
 ad_map_lt = tg.map_cells_to_space(
     adata_sc,
@@ -216,25 +224,3 @@ ad_map_lt = tg.map_cells_to_space(
 
 
 
-"""# Cross-validation test
-cv_results = tg.cross_validate_lightning(
-    adata_sc,
-    adata_st,   
-    mode=mode,
-    lambda_d=1,
-    lambda_g1=1,
-    lambda_g2=1,
-    lambda_r=0.001,
-    lambda_count=1,
-    lambda_f_reg=1,
-    target_count=target_count,
-    num_epochs=30,
-    learning_rate=0.1,
-    cv_mode="kfold",
-    cv_k=3,
-    density_prior='rna_count_based',
-    verbose=False,
-    metrics=["SSIM", "PCC", "RMSE", "JS"]
-)
-
-print(cv_results)"""
