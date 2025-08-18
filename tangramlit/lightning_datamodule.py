@@ -30,8 +30,8 @@ class MyDataModule(pl.LightningDataModule):
             adata_st (AnnData): Spatial AnnData object.
             input_genes (list): List of input genes to use for training. If None, use all genes shared between adata_sc and adata_st.
             refined_mode (bool): Whether to use refined mode for training. If True, use refined mode. If False, use unrefined mode. Default is False.
-            train_genes_names (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
-            val_genes_names (list): List of indices of genes to use for validation.
+            train_genes_names (list): List of names of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
+            val_genes_names (list): List of names of genes to use for validation.
         """
         super().__init__()
         self.adata_sc = adata_sc
@@ -41,7 +41,15 @@ class MyDataModule(pl.LightningDataModule):
         self.train_genes_names = train_genes_names
         self.val_genes_names = val_genes_names
 
-        # 2. Compute spatial neighbors needed for the neighborhood extension of Tangram
+        # Turn all gene names to lowercase
+        if self.input_genes is not None:
+            self.input_genes = [g.lower() for g in self.input_genes]
+        if self.train_genes_names is not None:
+            self.train_genes_names = [g.lower() for g in self.train_genes_names]
+        if self.val_genes_names is not None:
+            self.val_genes_names = [g.lower() for g in self.val_genes_names]
+
+        # Compute spatial neighbors needed for the neighborhood extension of Tangram
         if self.refined_mode:
             sq.gr.spatial_neighbors(self.adata_st, set_diag=False, key_added="spatial")
         # If not in refined mode, spatial coordinates are not required in the input anndata
@@ -52,7 +60,7 @@ class MyDataModule(pl.LightningDataModule):
         Executed before setup() is called.
         """
 
-        # Preprocess data - define adata.uns['training_genes'] (originally implemented in tg.mapping_utils.pp_adatas()
+        # Preprocess data - define adata.uns['training_genes'] - originally implemented in tg.mapping_utils.pp_adatas()
         logging.info("Preprocessing data...")
         # 1. Remove genes with zero counts
         self.adata_sc = self.adata_sc[:, np.array(self.adata_sc.X.sum(axis=0)).flatten() > 0]
@@ -88,7 +96,7 @@ class MyDataModule(pl.LightningDataModule):
         """
         Setup datasets for use in dataloaders.
         This method is called on every GPU separately.
-        Execute after prepare_data() and before train_dataloader().
+        Execute after prepare_data() and before train/val_dataloader().
         Defines dataset based on the current training mode (stage variable).
         """
         if stage == 'fit' or stage is None:
@@ -135,14 +143,14 @@ class MyDataModule(pl.LightningDataModule):
 class AdataPairDataset(Dataset):
     """
     Dataset class for single-cell and spatial anndata objects.
-    Returns a single batch containing all data, sliced according to the provided indices and based on the
+    Returns a single batch containing all data, sliced according to the provided names and based on the
     current mode.
 
     Args:
         adata_sc (AnnData): Single-cell AnnData object.
         adata_st (AnnData): Spatial AnnData object.
-        train_genes_names (list): List of indices of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
-        val_genes_names (list): List of indices of genes to use for validation.
+        train_genes_names (list): List of names of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
+        val_genes_names (list): List of names of genes to use for validation.
         mode (str): Training mode. Can be 'train' or 'val'. Default is 'train'.
     """
     def __init__(self,
@@ -153,7 +161,7 @@ class AdataPairDataset(Dataset):
                  val_genes_names=None,
                  ):
 
-        # Get training genes from adata.uns['training_genes'] (generated in prepare_data())
+        # Get training genes from adata.uns['training_genes'] - defined in prepare_data()
         assert adata_sc.uns['training_genes'] == adata_st.uns['training_genes'], "Training genes must be the same for single-cell and spatial data."
         training_genes = adata_sc.uns['training_genes']
 
@@ -199,17 +207,15 @@ class AdataPairDataset(Dataset):
         # Return only the relevant slice based on mode
         if self.mode == 'train':
             return {
-                'S': self.S[:, self.train_genes_idx],
-                'G': self.G[:, self.train_genes_idx],
-                'genes_idx': self.train_genes_idx,
-                'training_genes': self.training_genes
+                'S_train': self.S[:, self.train_genes_idx],
+                'G_train': self.G[:, self.train_genes_idx],
+                'training_genes_number': len(self.train_genes_idx),
             }
         else:  # validation mode
             return {
-                'S': self.S[:, self.val_genes_idx],
-                'G': self.G[:, self.val_genes_idx],
-                'genes_idx': self.val_genes_idx,
-                'training_genes': self.training_genes
+                'S_val': self.S[:, self.val_genes_idx],
+                'G_val': self.G[:, self.val_genes_idx],
+                'validation_genes_number': len(self.val_genes_idx),
             }
 
 def gene_names_to_indices(gene_names, adata):
@@ -239,9 +245,9 @@ def gene_names_to_indices(gene_names, adata):
         if gene_lower in adata.uns['training_genes']:
             indices.append(adata.uns['training_genes'].index(gene_lower))
         else:
-            missing_genes.append(gene)
+            missing_genes.append(gene)  # use .item() if array
 
     if missing_genes:
-        logging.warning(f"The following genes were not in training genes: {missing_genes} (removed with preprocessing).")
+        logging.warning(f"The following train/val input genes were removed with preprocessing: {missing_genes}.")
 
     return indices
