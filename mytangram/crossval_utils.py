@@ -6,8 +6,8 @@ from sklearn.model_selection import KFold
 from sklearn.model_selection import LeaveOneOut
 from tqdm import tqdm
 
+from mytangram_legacy import lightning_mapping_utils as lmu
 from tangram import utils as ut
-from . import lightning_mapping_utils as lmu
 from . import mapping_utils as mu
 from . import validation_metrics as vm
 

@@ -9,7 +9,7 @@ import scanpy as sc
 # from pytorch_lightning import *
 from anndata import *
 
-from .lightning_mapping_optim import *
+from mytangram_legacy.lightning_mapping_optim import *
 
 
 def validate_mapping_inputs(
