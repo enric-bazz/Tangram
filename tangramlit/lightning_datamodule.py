@@ -209,13 +209,13 @@ class AdataPairDataset(Dataset):
             return {
                 'S_train': self.S[:, self.train_genes_idx],
                 'G_train': self.G[:, self.train_genes_idx],
-                'training_genes_number': len(self.train_genes_idx),
+                'training_genes_number': len(self.train_genes_idx) if not isinstance(self.train_genes_idx, slice) else self.n_genes,
             }
         else:  # validation mode
             return {
                 'S_val': self.S[:, self.val_genes_idx],
                 'G_val': self.G[:, self.val_genes_idx],
-                'validation_genes_number': len(self.val_genes_idx),
+                'validation_genes_number': len(self.val_genes_idx) if not isinstance(self.val_genes_idx, slice) else self.n_genes,
             }
 
 def gene_names_to_indices(gene_names, adata):
