@@ -50,7 +50,7 @@ class MyDataModule(pl.LightningDataModule):
             self.val_genes_names = [g.lower() for g in self.val_genes_names]
 
         # Compute spatial neighbors needed for the neighborhood extension of Tangram
-        if self.refined_mode:
+        if self.refined_mode and 'spatial_connectivities' not in adata_st.obsp.keys():
             sq.gr.spatial_neighbors(self.adata_st, set_diag=False, key_added="spatial")
         # If not in refined mode, spatial coordinates are not required in the input anndata
 
