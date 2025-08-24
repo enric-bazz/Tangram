@@ -4,25 +4,27 @@ import torch
 from matplotlib.patches import Patch
 
 
-def plot_loss_terms(adata_map, hyperpams=None, lambda_scale = False, log_scale=False):
+def plot_loss_terms(adata_map, hyperpams=None, lambda_scale=True, log_scale=False):
     """
         Plots a panel for each loss term curve in the training step
 
         Args:
             adata_map (anndata object): input containing .uns["training_history"] returned by map_cells_to_space()
             hyperpams (dict): dictionary containing the hyperparameters used for the mapping
-            lambda_scale (bool): Whether to scale the loss terms by lambda (default: False)
+            lambda_scale (bool): Whether to scale the loss terms by lambda (default: True)
             log_scale (bool): Whether the y axis plots should be in log-scale (default: False)
 
         Returns:
-
+            Note that the trainig step store in adata_map.uns["training_history"] the loss terms for each epoch already scaled
+            by their respective hyperparameters, thus to get non scaled values we divide by the lambda.
         """
+
     # Check if training history is present
     if not "training_history" in adata_map.uns.keys():
         raise ValueError("Missing training history in mapped input data.")
 
-    if lambda_scale and hyperpams is None:
-        raise ValueError("Missing hyperparamters for scaling.")
+    if not lambda_scale and hyperpams is None:
+        raise ValueError("Missing hyperparamters for re-scaling.")
 
     # Retrieve loss terms labels
     loss_terms_labels = adata_map.uns['training_history'].keys()
@@ -59,9 +61,9 @@ def plot_loss_terms(adata_map, hyperpams=None, lambda_scale = False, log_scale=F
         "moran_term": "lambda_moran",
         "geary_term": "lambda_geary",
     }
-    if lambda_scale:
+    if not lambda_scale:
         for loss_key in (loss_dict.keys() & loss_lambda_map.keys()):
-            loss_dict[loss_key] = loss_dict[loss_key] * hyperpams[loss_lambda_map[loss_key]]
+            loss_dict[loss_key] = loss_dict[loss_key] / hyperpams[loss_lambda_map[loss_key]]
 
     # Retrieve number of epochs
     n_epochs = len(adata_map.uns['training_history']['total_loss'])
