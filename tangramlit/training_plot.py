@@ -4,13 +4,15 @@ import torch
 from matplotlib.patches import Patch
 
 
-def plot_loss_terms(adata_map, log_scale=True):
+def plot_loss_terms(adata_map, hyperpams=None, lambda_scale = False, log_scale=False):
     """
         Plots a panel for each loss term curve in the training step
 
         Args:
             adata_map (anndata object): input containing .uns["training_history"] returned by map_cells_to_space()
-            log_scale (bool): Whether the y axis plots should be in log-scale  
+            hyperpams (dict): dictionary containing the hyperparameters used for the mapping
+            lambda_scale (bool): Whether to scale the loss terms by lambda (default: False)
+            log_scale (bool): Whether the y axis plots should be in log-scale (default: False)
 
         Returns:
 
@@ -18,6 +20,9 @@ def plot_loss_terms(adata_map, log_scale=True):
     # Check if training history is present
     if not "training_history" in adata_map.uns.keys():
         raise ValueError("Missing training history in mapped input data.")
+
+    if lambda_scale and hyperpams is None:
+        raise ValueError("Missing hyperparamters for scaling.")
 
     # Retrieve loss terms labels
     loss_terms_labels = adata_map.uns['training_history'].keys()
@@ -37,6 +42,27 @@ def plot_loss_terms(adata_map, log_scale=True):
             # does not implement .copy()
         loss_dict[k] = loss_term_values
 
+    # Scale by lambda (bool)
+    loss_lambda_map = {
+        "main_loss": "lambda_g1",
+        "vg_reg": "lambda_g2",
+        "kl_reg": "lambda_d",
+        "entropy_reg": "lambda_r",
+        "l1_term": "lambda_l1",
+        "l2_term": "lambda_l2",
+        "count_reg": "lambda_count",
+        "lambda_f_reg": "lambda_f_reg",
+        "sparsity_term": "lambda_sparsity_g1",
+        "neighborhood_term": "lambda_neighborhood_g1",
+        "ct_island_term": "lambda_ct_islands",
+        "getis_ord_term": "lambda_getis_ord",
+        "moran_term": "lambda_moran",
+        "geary_term": "lambda_geary",
+    }
+    if lambda_scale:
+        for loss_key in (loss_dict.keys() & loss_lambda_map.keys()):
+            loss_dict[loss_key] = loss_dict[loss_key] * hyperpams[loss_lambda_map[loss_key]]
+
     # Retrieve number of epochs
     n_epochs = len(adata_map.uns['training_history']['total_loss'])
 
@@ -45,6 +71,8 @@ def plot_loss_terms(adata_map, log_scale=True):
     plt.figure(figsize=(10,20))
 
     title = 'Loss terms over epochs'
+    if lambda_scale:
+        title += ' (scaled by lambda)'
     if log_scale:
         title = title + ' (logscale)'
 
@@ -72,6 +100,7 @@ def plot_filter_weights_light(adata_map, plot_spaghetti=False, plot_envelope=Fal
         plot_envelope (bool): If True, plots the mean signal with ±1 std deviation envelope
     """
     matrix = np.column_stack(adata_map.uns['filter_history']['filter_values'])
+    #matrix = np.concatenate((matrix, np.expand_dims(adata_map.obs['F_out'].to_numpy(), axis=1)), axis=1)   # append final filter values
     
     # Calculate appropriate figure size and aspect ratio
     n_cells, n_epochs = matrix.shape
@@ -151,14 +180,14 @@ def plot_filter_weights_light(adata_map, plot_spaghetti=False, plot_envelope=Fal
         plt.show()
 
 
-def plot_filter_count(adata_map, target_count=None, figsize=(10, 5)):
+def plot_filter_count(adata_map, target_count=None, threshold=0.5, figsize=(10, 5)):
     """
     Plot the number of cells passing the filter threshold over epochs.
 
     Args:
         adata_map: anndata object returned my the mapping containing the filter history
-        and target count equalt to the one used for the mapping (if missing it is internally computed
-        as in the optimizer class)
+        and target count equal to the one used for the mapping (if missing it is internally computed
+        as in the optimizer class) and a threshold.
 
         This is a useful diagnostic plot as it shows how far the final number of cells is from the target.
         It should be related to the corresponding term in the loss function.
@@ -170,7 +199,8 @@ def plot_filter_count(adata_map, target_count=None, figsize=(10, 5)):
         target_count = n_spots
 
     fig, ax = plt.subplots(figsize=figsize)
-    n_cells = adata_map.uns['filter_history']['n_cells']
+    n_cells = (np.array(adata_map.uns['filter_history']['filter_values']) > threshold).sum(axis=1)
+    #n_cells = n_cells.append((adata_map.obs['F_out'] > 0.5).sum().item())  # last value
     epochs = range(1, len(n_cells) + 1)
 
     # Plot number of cells
