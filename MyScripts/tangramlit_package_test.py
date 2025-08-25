@@ -10,7 +10,7 @@ import tangramlit as tg
 
 # Set parameters for mapping
 mode = "filter"
-target_count = None
+target_count = 50
 cluster_label = "cluster_labels"
 
 # Set seed for reproducibility
@@ -40,14 +40,24 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     lambda_geary=1 ,
     )
 
+# Try analysis functions
+#df1 = tg.get_cell_spot_pair(ad_map_lt, filter=True)
+#df2 = tg.get_spot_cell_pair(ad_map_lt, filter=True)
+
+#filt_corr = tg.compute_filter_corr(ad_map_lt, plot=True)
+
+map_sim = tg.compute_mapped_similarity(ad_map_lt, adata_sc, adata_st, flavour='spot_to_cell', filter=True)
+
 # Plot loss terms
 tg.plot_loss_terms(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=True)
 tg.plot_loss_terms(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=False)
+
 
 # Plot final filter values distribution
 if mode == "filter":
     tg.plot_filter_weights_light(ad_map_lt, plot_spaghetti=True, plot_envelope=True)
     tg.plot_filter_count(ad_map_lt, target_count=target_count)
+
 
 # Validation
 # Get shared genes (case-insensitive)
