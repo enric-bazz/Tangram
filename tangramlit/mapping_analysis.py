@@ -356,9 +356,66 @@ def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filte
 
     return mapped_similarity
 
+# NOTE: Tangram's main use case is to project singe cell annotation onto the spatial spots. This is done by assigning to each spot the
+# cell type of the cell with the highest probability over it. A common way of evaluating this use is to compute the accuracy of
+# cell type predictions wrt to the spatial ground truth which is either the result of biologically supervised annotation, clustering or
+# synthetically derived.
 
-
-def compute_annotation_accuracy(adata_map, adata_sc, adata_st, flavour: str, filter=False, threshold=0.5):
+def compute_annotation_accuracy(
+        adata_map,
+        adata_sc,
+        adata_st,
+        flavour: str,
+        sc_cluster_label=None,
+        st_cluster_label=None,
+        filter=False,
+        threshold=0.5,
+        ):
     """
     Compute cell type (annotation) accuracy between the deterministic cell-spot pair.
+    Requires annotated spatial data, annotaions must be coherent and harmonized for proper prediction.
+
+    Args:
+        adata_map: Mapping object output of map_cells_to_space.
+        adata_sc: input single cell data.
+        adata_st: input spatial data.
+        flavour (str): Either "spot_to_cell" or "cell_to_spot" for the mapping perspective.
+        sc_cluster_label: column name of single cell cluster/annotation labels.
+        st_cluster_label: column name of spatial cluster/annotation labels.
+        filter (bool): Whether cell filtering is active. Default: False.
+        threshold (float): Threshold value for cell filtering.
     """
+    # Input
+    if sc_cluster_label is None or st_cluster_label is None:
+        raise ValueError("Provide cluster/annotation labels for single cell and spatial data.")
+    if sc_cluster_label not in adata_sc.obs.columns or st_cluster_label not in adata_st.obs.columns:
+        raise ValueError("Invalid cluster/annotation labels.")
+    # Check mismatch in labels
+    if len(set(adata_st.obs['class_label']) & set(adata_sc.obs['class_label'])) == 0:
+        raise ValueError("No common labels between single cell and spatial data.")
+
+    # Make all gene names to lower case
+    adata_sc.var_names = adata_sc.var_names.str.lower()
+    adata_st.var_names = adata_st.var_names.str.lower()
+
+    # Get deterministic cell-spot pair, always (spot_idx, cell_idx)
+    if flavour == "spot_to_cell":
+        # Each spot assigned to a cell
+        pairs_df = get_spot_cell_pair(adata_map, filter=filter, threshold=threshold)
+    elif flavour == "cell_to_spot":
+        # Each cell assigned to a spot
+        pairs_df = get_cell_spot_pair(adata_map, filter=filter, threshold=threshold)
+    else:
+        raise ValueError("Invalid flavour. Choose either 'spot_to_cell' or 'cell_to_spot'.")
+
+    # Get pairs annotations (originally pandas series)
+    sc_annotation = adata_sc.obs[sc_cluster_label].loc[pairs_df['cell index']].tolist() # shape (n_filtered_cells,)
+    st_annotation = adata_st.obs[st_cluster_label].loc[pairs_df['spot index']].tolist() # shape (n_spots,)
+
+    # Compute accuracy
+    annotation_hits = [sc_label == st_label for sc_label, st_label in zip(sc_annotation, st_annotation)]
+    annotation_acc = np.sum(annotation_hits) / len(annotation_hits)
+
+    print(f"Annotation accuracy: {annotation_acc / 100:.3f} %")
+
+    return annotation_acc

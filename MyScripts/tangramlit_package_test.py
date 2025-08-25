@@ -21,7 +21,7 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     adata_st,
     mode=mode,
     target_count=target_count,
-    num_epochs=10,
+    num_epochs=3,
     lambda_d=1,
     lambda_g1=1000,
     lambda_g2=1,
@@ -45,6 +45,13 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
 #df2 = tg.get_spot_cell_pair(ad_map_lt, filter=True)
 
 #filt_corr = tg.compute_filter_corr(ad_map_lt, plot=True)
+
+# Shared labels
+labels = set(adata_st.obs['class_label']) & set(adata_sc.obs['class_label'])
+# Accuracy
+acc = tg.compute_annotation_accuracy(ad_map_lt, adata_sc, adata_st,
+                               sc_cluster_label='class_label', st_cluster_label='class_label',
+                               flavour='spot_to_cell', filter=True)
 
 map_sim = tg.compute_mapped_similarity(ad_map_lt, adata_sc, adata_st, flavour='spot_to_cell', filter=True)
 
