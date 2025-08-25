@@ -1,5 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+from scipy.stats import linregress
+
 
 """
 Utilities for models comparison.
@@ -149,3 +152,194 @@ def compare_cell_choices(ad_map, ad_map_lt):
     plt.show()
 
     return results
+
+def compute_filter_corr(adata_map, plot=True):
+    """
+    Compute correlation of initial and final filter values
+    and optionally plot scatter with regression line.
+
+    Args:
+        adata_map: adata object output of map_cells_to_space(). Must contain adata_map.uns['filter_history']
+        plot (bool): If True, show scatterplot with regression line.
+    """
+
+    if "filter_history" not in adata_map.uns.keys():
+        raise ValueError("Missing filter history in mapped input data.")
+    # Retrieve filter history
+    filter_history = adata_map.uns['filter_history']['filter_values']  # shape = (n_epochs, n_cells)
+
+    # Retrieve initial and final filter values
+    filter_init = filter_history[0, :]
+    filter_final = filter_history[-1, :]
+
+    # Compute correlation
+    filter_corr = np.corrcoef(filter_init, filter_final)[0, 1]
+    print(f"Pearson correlation coefficient of filter values: {filter_corr}")
+
+    if plot:
+        plt.figure(figsize=(6, 6))
+        plt.scatter(filter_init, filter_final, alpha=0.5, color="blue", label="Cells")
+
+        # Fit regression line
+        slope, intercept, _, _, _ = linregress(filter_init, filter_final)
+        x_vals = np.array([filter_init.min(), filter_init.max()])
+        y_vals = intercept + slope * x_vals
+        plt.plot(x_vals, y_vals, color="red", lw=2, label="Fit")
+
+        plt.xlabel("Initial filter values")
+        plt.ylabel("Final filter values")
+        plt.title(f"Correlation = {filter_corr:.3f}")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+    return filter_corr
+
+### DETERMINISTIC MAPPING EVALUATION ###
+
+# NOTE: Tangram performs an asymmetric cell to spot mapping in the sense that it estimates the probability distribution of
+# each cell over spots, but conversely computes just a soft assignment/cell composition of each spot.
+# This means that one hot encoding with max() over the rows corresponds to a deterministic mapping of each cell onto a single
+# spot (based on its probability density function), while the same over the columns translates into a hard assignment
+# of a cell for each spot that is not based on a truly probability distribution, but rather a composition vector.
+
+def get_cell_spot_pair(adata_map, filter=False, threshold=0.5):
+    """
+    Perform deterministic mapping of cells to spots from the cells persepctive, i.e. each cell distribution is collapsed
+    into the max value to deterministically map it into a spot.
+
+    Args:
+        adata_map: Mapping object output of map_cells_to_space
+        filter (bool): Whether cell filtering is performed. Default: False.
+        threshold (float): Threshold value for cell filtering.
+
+    Returns:
+        Dataframe with shape (n_cells/n_filtered_cells, 2): each row = (spot index, cell index).
+    """
+    # Input check
+    if filter and "F_out" not in adata_map.obs.keys():
+        raise ValueError("Missing final filter in mapped input data.")
+
+    ### Deterministic mapping
+    # Store mapping matrix
+    mapping_matrix = adata_map.X  # shape (n_cells, n_spots)
+    if not isinstance(mapping_matrix, np.ndarray):
+        mapping_matrix = mapping_matrix.toarray()  # in case it's sparse
+    if filter:
+        # Filter out non-selected cells
+        deterministic_filter = adata_map.obs['F_out'] > threshold  # shape (n_cells,)
+        mapping_matrix = mapping_matrix[deterministic_filter, :]  # shape (n_filtered_cells, n_spots)
+        cell_index = adata_map.obs_names[deterministic_filter]  # keep only filtered cell names
+    else:
+        cell_index = adata_map.obs_names
+    # Collapse cell mappings to spot corresponding to max probability
+    spot_number = np.argmax(mapping_matrix, axis=1)  # shape (n_cells,)
+    spot_index = adata_map.var_names[spot_number]  # shape (n_cells,)
+
+    # cell-spot pairs dataframe
+    pairs_df = pd.DataFrame({
+        "spot index": spot_index,
+        "cell index": cell_index,
+    }).reset_index(drop=True)
+
+    return pairs_df
+
+def get_spot_cell_pair(adata_map, filter=False, threshold=0.5):
+    """
+    Perform deterministic mapping of cells to spots from the spots perspective, i.e. each spot get "deterministically"
+    assigned to the cell with the largest probability over it, aka its main component.
+
+    Args:
+        adata_map: Mapping object output of map_cells_to_space
+        filter (bool): Whether cell filtering is performed. Default: False.
+        threshold (float): Threshold value for cell filtering.
+
+    Returns:
+        DataFrame with shape (n_spots, 2): each row = (spot index, cell index).
+    """
+    # Input check
+    if filter and "F_out" not in adata_map.obs.keys():
+        raise ValueError("Missing final filter in mapped input data.")
+
+    # Store mapping matrix
+    mapping_matrix = adata_map.X  # shape (n_cells, n_spots)
+    if not isinstance(mapping_matrix, np.ndarray):
+        mapping_matrix = mapping_matrix.toarray()  # in case it's sparse
+
+    # Handle cell filtering
+    if filter:
+        deterministic_filter = adata_map.obs['F_out'] > threshold  # shape (n_cells,)
+        mapping_matrix = mapping_matrix[deterministic_filter, :]  # shape (n_filtered_cells, n_spots)
+        obs_names = adata_map.obs_names[deterministic_filter]  # filtered cell names
+    else:
+        obs_names = adata_map.obs_names
+
+    # Collapse spot mappings: for each spot (column), find cell with max probability
+    cell_number = np.argmax(mapping_matrix, axis=0)  # shape (n_spots,)
+    cell_index = obs_names[cell_number]  # map indices to cell names
+    spot_index = adata_map.var_names  # all spots (always length n_spots)
+
+    # Spot-cell pairs dataframe
+    pairs_df = pd.DataFrame({
+        "spot index": spot_index,
+        "cell index": cell_index
+    }).reset_index(drop=True)
+
+    return pairs_df
+
+
+# Compute the accuracy of deterministic mapping in two ways:
+#         1. For non annotated spatial data: computes gene expression similarity between deterministic cell-spot pair.
+#         2. For annotated spatial data: computes cell type (annotation) accuracy between deterministic cell-spot pair.
+# Each is conditioned on filtering.
+
+def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filter=False, threshold=0.5):
+    """
+    Compute cosine similarity between the expression profiles, limited to the shared genes, of the deterministic cell-spot pair.
+
+    Args:
+        adata_map: Mapping object output of map_cells_to_space
+        adata_sc: input single cell data
+        adata_st: input spatial data
+        flavour (str): Either "spot_to_cell" or "cell_to_spot" for the mapping perspective.
+        filter (bool): Whether cell filtering is active. Default: False.
+        threshold (float): Threshold value for cell filtering.
+
+    Returns:
+        mapped_similarity (array): shape = (n_spots/n_cells, ) depending on the mapping perspective. Cosine similarity of the shared
+        genes expression profile between the deterministic cell-spot pair.
+    """
+    # Get deterministic cell-spot pair, always (spot_idx, cell_idx)
+    if flavour == "spot_to_cell":
+        # Each spot assigned to a cell
+        pairs_df = get_spot_cell_pair(adata_map, filter=filter, threshold=threshold)
+    elif flavour == "cell_to_spot":
+        # Each cell assigned to a spot
+        pairs_df = get_cell_spot_pair(adata_map, filter=filter, threshold=threshold)
+    else:
+        raise ValueError("Invalid flavour. Choose either 'spot_to_cell' or 'cell_to_spot'.")
+
+    # Get shared genes
+    shared_genes = adata_map.uns['training_genes']
+
+    # Get expression profiles
+    sc_profile = adata_sc[pairs_df['cell index'], shared_genes].X  # shape (n_filtered_cells, n_shared_genes)
+    st_profile = adata_st[pairs_df['spot index'], shared_genes].X  # shape (n_spots, n_shared_genes)
+
+    # Compute cosine similarity (no torch)
+    mapped_similarity = np.dot(sc_profile, st_profile.T) / \
+                        (np.linalg.norm(sc_profile, axis=1) * np.linalg.norm(st_profile, axis=1).T)
+
+    return mapped_similarity
+
+    # Plot histogram of values with:
+    #plt.bar(range(len(mapped_similarity)), mapped_similrity)
+    #plt.title('Histogram of pair similarities')
+    #plt.xlabel('Number of pairs')
+    #plt.ylabel('Cosine similarity')
+    #plt.show()
+
+def compute_annotation_accuracy(adata_map, adata_sc, adata_st, flavour: str, filter=False, threshold=0.5):
+    """
+    Compute cell type (annotation) accuracy between the deterministic cell-spot pair.
+    """
