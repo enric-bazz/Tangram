@@ -9,7 +9,7 @@ adata_st = ad.read_h5ad(path + "/slice200_norm_reduced.h5ad")
 import tangramlit as tg
 
 # Set parameters for mapping
-mode = "vanilla"
+mode = "filter"
 target_count = None
 cluster_label = "cluster_labels"
 
@@ -21,27 +21,28 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     adata_st,
     mode=mode,
     target_count=target_count,
-    num_epochs=30,
+    num_epochs=10,
     lambda_d=1,
-    lambda_g1=1,
+    lambda_g1=1000,
     lambda_g2=1,
     lambda_r=0.001,
     lambda_count=1,
-    lambda_f_reg=1,
+    lambda_f_reg=1e-5,
     lambda_l2=1e-5,
     lambda_l1=1e-5,
     random_state=random_state,
     lambda_sparsity_g1=1,
     lambda_neighborhood_g1=1,
-    lambda_ct_islands=1,
-    cluster_label=cluster_label,
+    lambda_ct_islands=0,
+    #cluster_label=cluster_label,
     lambda_getis_ord=1,
     lambda_moran=1,
     lambda_geary=1 ,
     )
 
 # Plot loss terms
-tg.plot_loss_terms(adata_map=ad_map_lt, log_scale=False)
+tg.plot_loss_terms(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=True)
+tg.plot_loss_terms(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=False)
 
 # Plot final filter values distribution
 if mode == "filter":
@@ -107,6 +108,7 @@ results = tg.validate_mapping_experiment(mapper, datamodule)
 cv_results = tg.cross_validate_mapping(adata_sc,
     adata_st,
     mode=mode,
+   k=3,
    input_genes=shared_genes,
     num_epochs=30,
     lambda_d=1,
