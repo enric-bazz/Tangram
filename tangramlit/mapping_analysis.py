@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy import sparse
 from scipy.stats import linregress
 
 
@@ -169,8 +170,8 @@ def compute_filter_corr(adata_map, plot=True):
     filter_history = adata_map.uns['filter_history']['filter_values']  # shape = (n_epochs, n_cells)
 
     # Retrieve initial and final filter values
-    filter_init = filter_history[0, :]
-    filter_final = filter_history[-1, :]
+    filter_init = filter_history[0]
+    filter_final = filter_history[-1]
 
     # Compute correlation
     filter_corr = np.corrcoef(filter_init, filter_final)[0, 1]
@@ -293,7 +294,7 @@ def get_spot_cell_pair(adata_map, filter=False, threshold=0.5):
 #         2. For annotated spatial data: computes cell type (annotation) accuracy between deterministic cell-spot pair.
 # Each is conditioned on filtering.
 
-def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filter=False, threshold=0.5):
+def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filter=False, threshold=0.5, plot=True):
     """
     Compute cosine similarity between the expression profiles, limited to the shared genes, of the deterministic cell-spot pair.
 
@@ -304,11 +305,17 @@ def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filte
         flavour (str): Either "spot_to_cell" or "cell_to_spot" for the mapping perspective.
         filter (bool): Whether cell filtering is active. Default: False.
         threshold (float): Threshold value for cell filtering.
+        plot (bool): Whether to plot the histogram of mapped similarities. Default: True.
 
     Returns:
         mapped_similarity (array): shape = (n_spots/n_cells, ) depending on the mapping perspective. Cosine similarity of the shared
         genes expression profile between the deterministic cell-spot pair.
     """
+
+    # Make all gene names to lower case
+    adata_sc.var_names = adata_sc.var_names.str.lower()
+    adata_st.var_names = adata_st.var_names.str.lower()
+
     # Get deterministic cell-spot pair, always (spot_idx, cell_idx)
     if flavour == "spot_to_cell":
         # Each spot assigned to a cell
@@ -325,19 +332,31 @@ def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filte
     # Get expression profiles
     sc_profile = adata_sc[pairs_df['cell index'], shared_genes].X  # shape (n_filtered_cells, n_shared_genes)
     st_profile = adata_st[pairs_df['spot index'], shared_genes].X  # shape (n_spots, n_shared_genes)
+    # Turn to array if sparse
+    if isinstance(sc_profile, sparse.csr.csr_matrix):
+        sc_profile = sc_profile.toarray()
+    if isinstance(st_profile, sparse.csr.csr_matrix):
+        st_profile = st_profile.toarray()
 
     # Compute cosine similarity (no torch)
-    mapped_similarity = np.dot(sc_profile, st_profile.T) / \
-                        (np.linalg.norm(sc_profile, axis=1) * np.linalg.norm(st_profile, axis=1).T)
+    # Numerator: row-wise dot product as element-wise multiplication and sum over rows
+    num = np.sum(sc_profile * st_profile, axis=1)  # shape (n_filtered_cells/n_spots,)
+    # Denominator: product of row-wise L2 norms
+    denom = np.linalg.norm(sc_profile, axis=1) * np.linalg.norm(st_profile, axis=1)
+    # Cossim
+    mapped_similarity = num / denom
+
+    if plot:
+        # Histogram of cosine similarities
+        plt.hist(mapped_similarity, bins=np.linspace(-1, 1, 50), edgecolor="black")
+        plt.title("Histogram of pair similarities")
+        plt.xlabel("Cosine similarity")
+        plt.ylabel("Number of pairs")
+        plt.show()
 
     return mapped_similarity
 
-    # Plot histogram of values with:
-    #plt.bar(range(len(mapped_similarity)), mapped_similrity)
-    #plt.title('Histogram of pair similarities')
-    #plt.xlabel('Number of pairs')
-    #plt.ylabel('Cosine similarity')
-    #plt.show()
+
 
 def compute_annotation_accuracy(adata_map, adata_sc, adata_st, flavour: str, filter=False, threshold=0.5):
     """
