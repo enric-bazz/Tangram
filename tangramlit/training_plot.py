@@ -4,7 +4,7 @@ import torch
 from matplotlib.patches import Patch
 
 
-def plot_loss_terms(adata_map, hyperpams=None, lambda_scale=True, log_scale=False):
+def plot_training_history(adata_map, hyperpams=None, lambda_scale=True, log_scale=False):
     """
         Plots a panel for each loss term curve in the training step
 
@@ -15,7 +15,7 @@ def plot_loss_terms(adata_map, hyperpams=None, lambda_scale=True, log_scale=Fals
             log_scale (bool): Whether the y axis plots should be in log-scale (default: False)
 
         Returns:
-            Note that the trainig step store in adata_map.uns["training_history"] the loss terms for each epoch already scaled
+            Note that the trainig step stores in adata_map.uns["training_history"] the loss terms for each epoch already scaled
             by their respective hyperparameters, thus to get non scaled values we divide by the lambda.
         """
 
@@ -63,12 +63,9 @@ def plot_loss_terms(adata_map, hyperpams=None, lambda_scale=True, log_scale=Fals
     }
     if not lambda_scale:
         for loss_key in (loss_dict.keys() & loss_lambda_map.keys()):
-            loss_dict[loss_key] = loss_dict[loss_key] / hyperpams[loss_lambda_map[loss_key]]
+            if loss_dict[loss_key].any():  # truthy keys only
+                loss_dict[loss_key] = loss_dict[loss_key] / hyperpams[loss_lambda_map[loss_key]]
 
-    # Retrieve number of epochs
-    n_epochs = len(adata_map.uns['training_history']['total_loss'])
-
-    # Add filter to remove nan vectors
     # Create plot
     plt.figure(figsize=(10,20))
 
@@ -89,10 +86,9 @@ def plot_loss_terms(adata_map, hyperpams=None, lambda_scale=True, log_scale=Fals
     plt.ylabel('Loss')
     plt.title(title)
     plt.show()
-    #plt.close()
 
 
-def plot_filter_weights_light(adata_map, plot_spaghetti=False, plot_envelope=False):
+def plot_filter_weights(adata_map, plot_spaghetti=False, plot_envelope=False):
     """
     Plots the filter weights evolution over epochs with optional additional visualizations.
 
