@@ -154,7 +154,7 @@ def compare_cell_choices(ad_map, ad_map_lt):
 
     return results
 
-def compute_filter_corr(adata_map, plot=True):
+def compute_filter_corr(adata_map, plot=True, plot_regression=False):
     """
     Compute correlation of initial and final filter values
     and optionally plot scatter with regression line.
@@ -181,11 +181,12 @@ def compute_filter_corr(adata_map, plot=True):
         plt.figure(figsize=(6, 6))
         plt.scatter(filter_init, filter_final, alpha=0.5, color="blue", label="Cells")
 
-        # Fit regression line
-        slope, intercept, _, _, _ = linregress(filter_init, filter_final)
-        x_vals = np.array([filter_init.min(), filter_init.max()])
-        y_vals = intercept + slope * x_vals
-        plt.plot(x_vals, y_vals, color="red", lw=2, label="Fit")
+        if plot_regression:
+            # Fit regression line
+            slope, intercept, _, _, _ = linregress(filter_init, filter_final)
+            x_vals = np.array([filter_init.min(), filter_init.max()])
+            y_vals = intercept + slope * x_vals
+            plt.plot(x_vals, y_vals, color="red", lw=2, label="Fit")
 
         plt.xlabel("Initial filter values")
         plt.ylabel("Final filter values")
