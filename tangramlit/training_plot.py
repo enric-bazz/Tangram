@@ -6,7 +6,7 @@ from matplotlib.patches import Patch
 
 def plot_training_history(adata_map, hyperpams=None, lambda_scale=True, log_scale=False):
     """
-        Plots a panel for each loss term curve in the training step
+        Plots a panel with all loss term curves in training
 
         Args:
             adata_map (anndata object): input containing .uns["training_history"] returned by map_cells_to_space()
@@ -87,6 +87,58 @@ def plot_training_history(adata_map, hyperpams=None, lambda_scale=True, log_scal
     plt.title(title)
     plt.show()
 
+
+def plot_loss_term(adata_map, loss_key: str, lambda_coeff=None, lambda_scale=False, log_scale=False):
+    """
+    Plots the single loss term specified in input over the training epochs, optionally scaling by its coefficient.
+
+    Args:
+        adata_map (anndata object): input containing .uns["training_history"] returned by map_cells_to_space()
+        loss_key (str): loss term key in adata_map.uns['training_history']
+        lambda_coeff (float): regularization coefficient of the term
+        lambda_scale (bool): Whether to scale the loss terms by lambda (default: True)
+        log_scale (bool): Whether the y axis plots should be in log-scale (default: False)
+
+    Returns:
+        plt.plot()
+    """
+    # Check if key is present
+    if not loss_key in adata_map.uns["training_history"].keys():
+        raise ValueError("Loss term not in training history.")
+    # Check if coeff is present
+    if lambda_scale and lambda_coeff is None:
+        raise ValueError("Missing coefficient for scaling.")
+
+    # Retrieve curve
+    if type(adata_map.uns["training_history"][loss_key][0]) == torch.Tensor and not torch.isnan(
+            adata_map.uns["training_history"][loss_key][0]):
+        loss_term_values = []
+        for entry in adata_map.uns["training_history"][loss_key]:
+            loss_term_values.append(entry.detach())
+        loss_term_values = np.asarray(loss_term_values)
+    elif type(adata_map.uns["training_history"][loss_key][0]) == float and not np.isnan(
+            adata_map.uns["training_history"][loss_key][0]):
+        loss_term_values = np.asarray(adata_map.uns["training_history"][loss_key])
+
+        if not loss_term_values.any():  # no truthy values
+            raise ValueError("Loss term has not been tracked in training.")
+
+        # Create plot
+        plt.figure(figsize=(10, 6))
+        title = 'Loss terms over epochs'
+        if lambda_scale:
+            title += ' (scaled by lambda)'
+        if log_scale:
+            title = title + ' (logscale)'
+        if log_scale:
+            plt.semilogy(abs(loss_term_values), label=loss_key)
+        else:
+            plt.plot(loss_term_values, label=loss_key)
+            plt.legend()
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title(title)
+        plt.show()
 
 def plot_filter_weights(adata_map, plot_spaghetti=False, plot_envelope=False):
     """
