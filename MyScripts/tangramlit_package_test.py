@@ -21,14 +21,14 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     adata_st,
     mode=mode,
     target_count=target_count,
-    num_epochs=3,
+    num_epochs=1000,
     lambda_d=1,
     lambda_g1=1000,
-    lambda_g2=1,
-    lambda_r=0.001,
+    lambda_g2=0,
+    lambda_r=0,
     lambda_count=1,
     lambda_f_reg=1e-5,
-    lambda_l2=1e-5,
+    lambda_l2=0,
     lambda_l1=1e-5,
     random_state=random_state,
     lambda_sparsity_g1=1,
@@ -40,11 +40,16 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     lambda_geary=1 ,
     )
 
+# Plot loss terms
+#tg.plot_loss_term(adata_map=ad_map_lt, loss_key='entropy_reg')
+tg.plot_training_history(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=True)
+#tg.plot_training_history(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=False)
+
 # Try analysis functions
 #df1 = tg.get_cell_spot_pair(ad_map_lt, filter=True)
 #df2 = tg.get_spot_cell_pair(ad_map_lt, filter=True)
 
-#filt_corr = tg.compute_filter_corr(ad_map_lt, plot=True)
+filt_corr = tg.compute_filter_corr(ad_map_lt, plot=True)
 
 # Shared labels
 labels = set(adata_st.obs['class_label']) & set(adata_sc.obs['class_label'])
@@ -55,9 +60,7 @@ acc = tg.compute_annotation_accuracy(ad_map_lt, adata_sc, adata_st,
 
 map_sim = tg.compute_mapped_similarity(ad_map_lt, adata_sc, adata_st, flavour='spot_to_cell', filter=True)
 
-# Plot loss terms
-tg.plot_loss_terms(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=True)
-tg.plot_loss_terms(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=False)
+
 
 
 # Plot final filter values distribution
