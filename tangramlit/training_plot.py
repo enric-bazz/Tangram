@@ -352,3 +352,5 @@ def traffic_light_plot(genes_list, values_sc=None, values_sp=None, figsize=(10, 
     
     plt.tight_layout()
     plt.show()
+
+    # TODO: pass masks as pandas Series and use indexing for intersection
