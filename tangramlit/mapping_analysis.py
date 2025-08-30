@@ -392,7 +392,7 @@ def compute_annotation_accuracy(
     if sc_cluster_label not in adata_sc.obs.columns or st_cluster_label not in adata_st.obs.columns:
         raise ValueError("Invalid cluster/annotation labels.")
     # Check mismatch in labels
-    if len(set(adata_st.obs['class_label']) & set(adata_sc.obs['class_label'])) == 0:
+    if len(set(adata_st.obs[st_cluster_label]) & set(adata_sc.obs[sc_cluster_label])) == 0:
         raise ValueError("No common labels between single cell and spatial data.")
 
     # Make all gene names to lower case
