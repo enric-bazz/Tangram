@@ -1,7 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy import sparse
 from scipy.stats import linregress
 
 
@@ -330,14 +329,29 @@ def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filte
     # Get shared genes
     shared_genes = adata_map.uns['training_genes']
 
-    # Get expression profiles
-    sc_profile = adata_sc[pairs_df['cell index'], shared_genes].X  # shape (n_filtered_cells, n_shared_genes)
-    st_profile = adata_st[pairs_df['spot index'], shared_genes].X  # shape (n_spots, n_shared_genes)
+    # Convert indices/names to a form AnnData accepts
+    cell_idx = pairs_df['cell index']
+    spot_idx = pairs_df['spot index']
+
+    # If they are not integer dtype, convert to list (AnnData accepts obs_names as list)
+    if cell_idx.dtype.kind not in {'i', 'u'}:
+        cell_idx = cell_idx.tolist()
+    if spot_idx.dtype.kind not in {'i', 'u'}:
+        spot_idx = spot_idx.tolist()
+
+    # Extract expression profiles using AnnData indexing (safe with names or integers)
+    sc_profile = adata_sc[cell_idx, shared_genes].X
+    st_profile = adata_st[spot_idx, shared_genes].X
+
     # Turn to array if sparse
-    if isinstance(sc_profile, sparse.csr.csr_matrix):
+    if hasattr(sc_profile, "toarray"):
         sc_profile = sc_profile.toarray()
-    if isinstance(st_profile, sparse.csr.csr_matrix):
+    if hasattr(st_profile, "toarray"):
         st_profile = st_profile.toarray()
+
+    # Ensure 2D arrays
+    sc_profile = np.atleast_2d(np.asarray(sc_profile, dtype=float))
+    st_profile = np.atleast_2d(np.asarray(st_profile, dtype=float))
 
     # Compute cosine similarity (no torch)
     # Numerator: row-wise dot product as element-wise multiplication and sum over rows
@@ -357,7 +371,7 @@ def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filte
 
     return mapped_similarity
 
-# NOTE: Tangram's main use case is to project singe cell annotation onto the spatial spots. This is done by assigning to each spot the
+# NOTE: Tangram's main use case is to project single cell annotation onto the spatial spots. This is done by assigning to each spot the
 # cell type of the cell with the highest probability over it. A common way of evaluating this use is to compute the accuracy of
 # cell type predictions wrt to the spatial ground truth which is either the result of biologically supervised annotation, clustering or
 # synthetically derived.
