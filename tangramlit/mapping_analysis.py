@@ -434,3 +434,36 @@ def compute_annotation_accuracy(
     print(f"Annotation accuracy: {annotation_acc / 100:.3f} %")
 
     return annotation_acc
+
+## FIlTER EVALUATION ##
+
+def filter_cell_choice_consistency(filter_square, threshold=0.5):
+    """
+    Evaluate cell choice consistency across multiple runs.
+
+    Arg:
+        filter_square (array shape = (n_cells, n_runs)): Square containing in each column the final filter values of each run.
+        threshold (float): Threshold value for cell filtering.
+    Returns:
+        Prints a histogram of the number of runs each cell is selected in (is above threshold).
+        Reports the filter consistency as the percentage, over all cells, of cells that are selected in all runs.
+    """
+
+    # Get number of runs
+    n_runs = filter_square.shape[1]
+
+    # Count number of runs each cell is selected in
+    selected_cells = np.sum(filter_square > threshold, axis=1)
+
+    # Plot histogram of selected cells
+    plt.hist(selected_cells, bins=np.arange(0, n_runs+1), edgecolor="black")
+    plt.title("Histogram of selected cells")
+    plt.xlabel("Number of selected runs")
+    plt.show()
+
+    # Compute consistency
+    consistency = np.sum(selected_cells == n_runs) / len(selected_cells)
+
+    print(f"Filter consistency: {consistency * 100:.3f} %")
+
+    return consistency
