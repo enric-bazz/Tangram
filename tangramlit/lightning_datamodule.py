@@ -57,7 +57,7 @@ class MyDataModule(pl.LightningDataModule):
     def prepare_data(self):
         """
         Takes anndata objects and prepares them for mapping.
-        Executed before setup() is called.
+        Executed before setup() in the trainer.fit call (?).
         """
 
         # Preprocess data - define adata.uns['training_genes'] - originally implemented in tg.mapping_utils.pp_adatas()
@@ -251,3 +251,8 @@ def gene_names_to_indices(gene_names, adata):
         logging.warning(f"The following train/val input genes were removed with preprocessing: {missing_genes}.")
 
     return indices
+
+
+## Function for spatial data binning ##
+## called in setup ##
+

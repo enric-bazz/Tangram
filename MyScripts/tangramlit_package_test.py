@@ -65,7 +65,7 @@ map_sim = tg.compute_mapped_similarity(ad_map_lt, adata_sc, adata_st, flavour='s
 
 # Plot final filter values distribution
 if mode == "filter":
-    tg.plot_filter_weights_light(ad_map_lt, plot_spaghetti=True, plot_envelope=True)
+    tg.plot_filter_weights(ad_map_lt, plot_spaghetti=True, plot_envelope=True)
     tg.plot_filter_count(ad_map_lt, target_count=target_count)
 
 
