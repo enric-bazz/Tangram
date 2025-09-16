@@ -9,8 +9,8 @@ adata_st = ad.read_h5ad(path + "/slice200_norm_reduced.h5ad")
 import tangramlit as tg
 
 # Set parameters for mapping
-mode = "filter"
-target_count = 50
+mode = "vanilla"
+target_count = None
 cluster_label = "cluster_labels"
 
 # Set seed for reproducibility
@@ -40,6 +40,9 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     lambda_geary=1 ,
     )
 
+# Annotation transfer test
+tg.transfer_annotation(adata_map=ad_map_lt, adata_st=adata_st, sc_cluster_label='class_label',
+                       filter=False)
 # Plot loss terms
 #tg.plot_loss_term(adata_map=ad_map_lt, loss_key='entropy_reg')
 tg.plot_training_history(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=True)
@@ -49,16 +52,16 @@ tg.plot_training_history(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scal
 #df1 = tg.get_cell_spot_pair(ad_map_lt, filter=True)
 #df2 = tg.get_spot_cell_pair(ad_map_lt, filter=True)
 
-filt_corr = tg.compute_filter_corr(ad_map_lt, plot=True)
+#filt_corr = tg.compute_filter_corr(ad_map_lt, plot=True)
 
 # Shared labels
 labels = set(adata_st.obs['class_label']) & set(adata_sc.obs['class_label'])
 # Accuracy
 acc = tg.compute_annotation_accuracy(ad_map_lt, adata_sc, adata_st,
                                sc_cluster_label='class_label', st_cluster_label='class_label',
-                               flavour='spot_to_cell', filter=True)
+                               flavour='spot_to_cell', filter=False)
 
-map_sim = tg.compute_mapped_similarity(ad_map_lt, adata_sc, adata_st, flavour='spot_to_cell', filter=True)
+map_sim = tg.compute_mapped_similarity(ad_map_lt, adata_sc, adata_st, flavour='spot_to_cell', filter=False)
 
 
 

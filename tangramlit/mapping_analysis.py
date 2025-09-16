@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import linregress
 
+from . import utils as ut
+
 ## HEAD TO HEAD MODEL COMPARISON  ##
 """
 Utilities for models comparison.
@@ -490,6 +492,52 @@ def count_deterministic_mapping_matches(cells_to_spots_df, spots_to_cells_df):
 
     return matches_fraction
 
+def transfer_annotation(adata_map, adata_st, sc_cluster_label, filter=False, threshold=0.5):
+    """
+    Transfer cell type (annotation) from single cell data to spatial data.
+    Overwrites project_cell_annotation() and cell_type_mapping() of original tangram repo.
+
+    Args:
+        adata_map (AnnData): output of map_cells_to_space
+        adata_st (AnnData): spatial data
+        sc_cluster_label (str): column name of single cell cluster/annotation labels
+        filter (bool): Whether cell filtering is active. Default: False.
+        threshold (float): Threshold value for cell filtering.
+
+    Returns:
+        None.
+        Update spatial Anndata by creating:
+        1. `obsm` `tangram_` field with a dataframe with spatial prediction for each annotation (number_spots, number_annotations)
+        2. 'obs' `tangram_annotation` field with the annotation with the highest probability over each spot (number_spots,)
+    """
+    # Controls
+    if filter and "F_out" not in adata_map.obs.keys():
+        raise ValueError("Missing final filter in mapped input data with filter=True.")
+    if sc_cluster_label not in adata_st.obs.columns:
+        raise ValueError("Invalid single cell data cluster/annotation labels.")
+
+    # OHE single cell annotations (use tangram.utils function)
+    df = ut.one_hot_encoding(adata_map.obs[sc_cluster_label])
+
+    # Annotations probabilities dataframe (bulk-vote transfer) A_st = M^T @ A_sc
+    if filter:
+        # Restrict to filtered cells
+        df_ct_prob = adata_map[adata_map.obs["F_out"] > threshold].X.T @ df.loc[adata_map.obs["F_out"] > threshold]
+    else:
+        df_ct_prob = adata_map.X.T @ df
+
+    # Assign spot indexes
+    df_ct_prob.index = adata_st.obs.index
+
+    # Normalize per cell type (max-min)
+    vmin = df_ct_prob.min()
+    vmax = df_ct_prob.max()
+    df_ct_prob = (df_ct_prob - vmin) / (vmax - vmin)
+
+    # Add fields to spatial AnnData
+    adata_st.obsm["tangram_cluster_probs"] = df_ct_prob  # (number_spots, number_annotations)
+    adata_st.obs["tangram_annotation"] = df_ct_prob.idxmax(axis=1)  # (number_spots,)
+
 
 
 ## FIlTER EVALUATION ##
@@ -524,3 +572,5 @@ def filter_cell_choice_consistency(filter_square, threshold=0.5):
     print(f"Filter consistency: {consistency * 100:.3f} %")
 
     return consistency
+
+# TODO: as of now filter_value > threshold, alternatively move everything to filter_value >= threshold
