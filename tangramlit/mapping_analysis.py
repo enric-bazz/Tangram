@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import linregress
 
-
+## HEAD TO HEAD MODEL COMPARISON  ##
 """
 Utilities for models comparison.
 """
@@ -104,7 +104,7 @@ def compare_cell_choices(ad_map, ad_map_lt):
     # Calculate various similarity metrics
     correlation = np.corrcoef(f_probs_original, f_probs_lightning)[0, 1]
 
-    # Calculate cosine similarity
+    # Calculate cosine similarity between filters
     cos_sim = np.dot(f_probs_original, f_probs_lightning) / \
               (np.linalg.norm(f_probs_original) * np.linalg.norm(f_probs_lightning))
 
@@ -424,8 +424,10 @@ def compute_annotation_accuracy(
         raise ValueError("Invalid flavour. Choose either 'spot_to_cell' or 'cell_to_spot'.")
 
     # Get pairs annotations (originally pandas series)
-    sc_annotation = adata_sc.obs[sc_cluster_label].loc[pairs_df['cell index']].tolist() # shape (n_filtered_cells,)
-    st_annotation = adata_st.obs[st_cluster_label].loc[pairs_df['spot index']].tolist() # shape (n_spots,)
+    sc_annotation = adata_sc.obs[sc_cluster_label].loc[pairs_df['cell index']].tolist()
+    st_annotation = adata_st.obs[st_cluster_label].loc[pairs_df['spot index']].tolist()
+    # both have either shape (n_filtered_cells,) or (n_spots,) depending on the mapping perspective
+    # NOTE: Both loc[...] calls return values in the order given by the corresponding column of pairs_df
 
     # Compute accuracy
     annotation_hits = [sc_label == st_label for sc_label, st_label in zip(sc_annotation, st_annotation)]
@@ -434,6 +436,45 @@ def compute_annotation_accuracy(
     print(f"Annotation accuracy: {annotation_acc / 100:.3f} %")
 
     return annotation_acc
+
+
+def count_deterministic_mapping_matches(cells_to_spots_df, spots_to_cells_df):
+    """
+    Count the number of matches between a cells to spot deterministic mapping and a spots to cells deterministic mapping.
+    This is implemented from the spots perspective. i.e. for each spot:
+    - get the assigned cell id from spots_ti_cells_df
+    - find the cell in cells_to_spots_df with the same cell id
+    - get the assigned spot id from cells_to_spots_df
+    - if it matches the spot id, increment the counter
+
+    Args:
+        cells_to_spots_df: DataFrame with shape (n_cells, 2) containing the cell index and the corresponding spot index. Output of get_cell_spot_pair().
+        spots_to_cells_df: DataFrame with shape (n_spots, 2) containing the spot index and the corresponding cell index. Output of get_spot_cell_pair().
+
+    Returns:
+        The fraction of spots that match the reverse mapping.
+    """
+    # Count number of matches
+    n_matches = 0
+    for _, row in spots_to_cells_df.iterrows():
+        spot_idx = row['spot index']  # current spot index
+        cell_idx = row['cell index']  # matched cell index
+
+        # Get spot matched spot index from cells_to_spots_df
+        spot_idx_matched = cells_to_spots_df.loc[cells_to_spots_df['cell index'] == cell_idx, 'spot index'].values[0]
+
+        # Check if they match
+        if spot_idx == spot_idx_matched:
+            n_matches += 1
+
+    # Compute fraction of spots that match the reverse mapping
+    matches_fraction = n_matches / len(spots_to_cells_df)
+
+    print(f">>> Fraction of spots that match the reverse mapping: {matches_fraction:.2f)}")
+
+    return matches_fraction
+
+
 
 ## FIlTER EVALUATION ##
 
