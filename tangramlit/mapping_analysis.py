@@ -429,11 +429,27 @@ def compute_annotation_accuracy(
     # both have either shape (n_filtered_cells,) or (n_spots,) depending on the mapping perspective
     # NOTE: Both loc[...] calls return values in the order given by the corresponding column of pairs_df
 
-    # Compute accuracy
+    # Overall accuracy
     annotation_hits = [sc_label == st_label for sc_label, st_label in zip(sc_annotation, st_annotation)]
     annotation_acc = np.sum(annotation_hits) / len(annotation_hits)
 
-    print(f"Annotation accuracy: {annotation_acc / 100:.3f} %")
+    print(f"Overall annotation accuracy: {annotation_acc:.3f}")
+
+    # Per-label classification report
+    labels = sorted(set(sc_annotation) | set(st_annotation))  # should already match if sc_cluster_label and st_cluster_label are coherent
+    report_data = []
+    for lbl in labels:
+        support = sum(s == lbl for s in st_annotation)
+        predicted = sum(s == lbl for s in sc_annotation)
+        correct = sum((s == lbl) and (p == lbl) for s, p in zip(st_annotation, sc_annotation))
+        accuracy = correct / support if support > 0 else np.nan
+        report_data.append([lbl, support, predicted, accuracy])
+
+    report_df = pd.DataFrame(report_data, columns=['Label', 'Support', 'Predicted', 'Accuracy'])
+    print("\nPer-label annotation report:")
+    print(report_df.to_string(index=False))
+
+    return annotation_acc, report_df
 
     return annotation_acc
 
