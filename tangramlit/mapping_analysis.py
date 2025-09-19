@@ -1,13 +1,16 @@
+import logging
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.stats import linregress
+from sklearn.metrics import classification_report, accuracy_score
 
 from . import utils as ut
 
 ## HEAD TO HEAD MODEL COMPARISON  ##
 """
-Utilities for models comparison.
+Utilities for models comparison. Specifically, bulk metrics over all data.
 """
 
 # Plot losses side by side for comparison
@@ -215,6 +218,7 @@ def get_cell_spot_pair(adata_map, filter=False, threshold=0.5):
         adata_map: Mapping object output of map_cells_to_space
         filter (bool): Whether cell filtering is performed. Default: False.
         threshold (float): Threshold value for cell filtering.
+        NOTE: Does not guarantee that all spots are assigned to at leas one cell (not feasible for spatial reconstruction).
 
     Returns:
         Dataframe with shape (n_cells/n_filtered_cells, 2): each row = (spot index, cell index).
@@ -290,13 +294,49 @@ def get_spot_cell_pair(adata_map, filter=False, threshold=0.5):
 
     return pairs_df
 
+def count_deterministic_mapping_matches(cells_to_spots_df, spots_to_cells_df):
+    """
+    Count the number of matches between a cells to spot deterministic mapping and a spots to cells deterministic mapping.
+    This is implemented from the spots perspective. i.e. for each spot:
+    - get the assigned cell id from spots_ti_cells_df
+    - find the cell in cells_to_spots_df with the same cell id
+    - get the assigned spot id from cells_to_spots_df
+    - if it matches the spot id, increment the counter
 
-# Compute the accuracy of deterministic mapping in two ways:
+    Args:
+        cells_to_spots_df: DataFrame with shape (n_cells, 2) containing the cell index and the corresponding spot index. Output of get_cell_spot_pair().
+        spots_to_cells_df: DataFrame with shape (n_spots, 2) containing the spot index and the corresponding cell index. Output of get_spot_cell_pair().
+
+    Returns:
+        The fraction of spots that match the reverse mapping.
+    """
+    # Count number of matches
+    n_matches = 0
+    for _, row in spots_to_cells_df.iterrows():
+        spot_idx = row['spot index']  # current spot index
+        cell_idx = row['cell index']  # matched cell index
+
+        # Get spot matched spot index from cells_to_spots_df
+        spot_idx_matched = cells_to_spots_df.loc[cells_to_spots_df['cell index'] == cell_idx, 'spot index'].values[0]
+
+        # Check if they match
+        if spot_idx == spot_idx_matched:
+            n_matches += 1
+
+    # Compute fraction of spots that match the reverse mapping
+    matches_fraction = n_matches / len(spots_to_cells_df)
+
+    print(f">>> Fraction of spots that match the reverse mapping: {matches_fraction:.2f}")
+
+    return matches_fraction
+
+
+# Compute the quality of deterministic mapping in two ways:
 #         1. For non annotated spatial data: computes gene expression similarity between deterministic cell-spot pair.
 #         2. For annotated spatial data: computes cell type (annotation) accuracy between deterministic cell-spot pair.
 # Each is conditioned on filtering.
 
-def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filter=False, threshold=0.5, plot=True):
+def deterministic_mapping_similarity(adata_map, adata_sc, adata_st, flavour: str, filter=False, threshold=0.5, plot=True):
     """
     Compute cosine similarity between the expression profiles, limited to the shared genes, of the deterministic cell-spot pair.
 
@@ -378,7 +418,10 @@ def compute_mapped_similarity(adata_map, adata_sc, adata_st, flavour: str, filte
 # cell type predictions wrt to the spatial ground truth which is either the result of biologically supervised annotation, clustering or
 # synthetically derived.
 
-def compute_annotation_accuracy(
+
+
+### ANNOTATION ###
+def deterministic_annotation(
         adata_map,
         adata_sc,
         adata_st,
@@ -389,8 +432,10 @@ def compute_annotation_accuracy(
         threshold=0.5,
         ):
     """
-    Compute cell type (annotation) accuracy between the deterministic cell-spot pair.
-    Requires annotated spatial data, annotaions must be coherent and harmonized for proper prediction.
+    Compute annotation transfer based on deterministic one-to-one mapping.
+    Requires annotated spatial data, annotations must be coherent and harmonized for proper prediction.
+    NOTE: With "cell_to_spot" flavoured mapping some spots might not be called and therefore annotated. To properly evaluate spatial
+    annotation transfer use only "spot_to_cell". Flavour "cell_to_spot" is jet for legacy reasons.
 
     Args:
         adata_map: Mapping object output of map_cells_to_space.
@@ -401,7 +446,11 @@ def compute_annotation_accuracy(
         st_cluster_label: column name of spatial cluster/annotation labels.
         filter (bool): Whether cell filtering is active. Default: False.
         threshold (float): Threshold value for cell filtering.
+
+    Returns:
+        array-like objects with true and predicted annotations.
     """
+
     # Input
     if sc_cluster_label is None or st_cluster_label is None:
         raise ValueError("Provide cluster/annotation labels for single cell and spatial data.")
@@ -410,12 +459,14 @@ def compute_annotation_accuracy(
     # Check mismatch in labels
     if len(set(adata_st.obs[st_cluster_label]) & set(adata_sc.obs[sc_cluster_label])) == 0:
         raise ValueError("No common labels between single cell and spatial data.")
+    if not set(adata_st.obs[st_cluster_label].unique()).issubset(set(adata_sc.obs[sc_cluster_label].unique())):
+        logging.warning('Annotation labels are not harmonized')
 
     # Make all gene names to lower case
     adata_sc.var_names = adata_sc.var_names.str.lower()
     adata_st.var_names = adata_st.var_names.str.lower()
 
-    # Get deterministic cell-spot pair, always (spot_idx, cell_idx)
+    # Get deterministic spot-cell pair, always (spot_idx, cell_idx)
     if flavour == "spot_to_cell":
         # Each spot assigned to a cell
         pairs_df = get_spot_cell_pair(adata_map, filter=filter, threshold=threshold)
@@ -425,72 +476,12 @@ def compute_annotation_accuracy(
     else:
         raise ValueError("Invalid flavour. Choose either 'spot_to_cell' or 'cell_to_spot'.")
 
-    # Get pairs annotations (originally pandas series)
-    sc_annotation = adata_sc.obs[sc_cluster_label].loc[pairs_df['cell index']].tolist()
-    st_annotation = adata_st.obs[st_cluster_label].loc[pairs_df['spot index']].tolist()
-    # both have either shape (n_filtered_cells,) or (n_spots,) depending on the mapping perspective
+    # Get true-predicted annotation pairs of shape (n_spots,) (originally pandas series)
+    true_annotation = adata_st.obs[st_cluster_label].loc[pairs_df['spot index']].tolist()  # from st data
+    pred_annotation = adata_sc.obs[sc_cluster_label].loc[pairs_df['cell index']].tolist()  # from sc data
     # NOTE: Both loc[...] calls return values in the order given by the corresponding column of pairs_df
 
-    # Overall accuracy
-    annotation_hits = [sc_label == st_label for sc_label, st_label in zip(sc_annotation, st_annotation)]
-    annotation_acc = np.sum(annotation_hits) / len(annotation_hits)
-
-    print(f"Overall annotation accuracy: {annotation_acc:.3f}")
-
-    # Per-label classification report
-    labels = sorted(set(sc_annotation) | set(st_annotation))  # should already match if sc_cluster_label and st_cluster_label are coherent
-    report_data = []
-    for lbl in labels:
-        support = sum(s == lbl for s in st_annotation)
-        predicted = sum(s == lbl for s in sc_annotation)
-        correct = sum((s == lbl) and (p == lbl) for s, p in zip(st_annotation, sc_annotation))
-        accuracy = correct / support if support > 0 else np.nan
-        report_data.append([lbl, support, predicted, accuracy])
-
-    report_df = pd.DataFrame(report_data, columns=['Label', 'Support', 'Predicted', 'Accuracy'])
-    print("\nPer-label annotation report:")
-    print(report_df.to_string(index=False))
-
-    return annotation_acc, report_df
-
-    return annotation_acc
-
-
-def count_deterministic_mapping_matches(cells_to_spots_df, spots_to_cells_df):
-    """
-    Count the number of matches between a cells to spot deterministic mapping and a spots to cells deterministic mapping.
-    This is implemented from the spots perspective. i.e. for each spot:
-    - get the assigned cell id from spots_ti_cells_df
-    - find the cell in cells_to_spots_df with the same cell id
-    - get the assigned spot id from cells_to_spots_df
-    - if it matches the spot id, increment the counter
-
-    Args:
-        cells_to_spots_df: DataFrame with shape (n_cells, 2) containing the cell index and the corresponding spot index. Output of get_cell_spot_pair().
-        spots_to_cells_df: DataFrame with shape (n_spots, 2) containing the spot index and the corresponding cell index. Output of get_spot_cell_pair().
-
-    Returns:
-        The fraction of spots that match the reverse mapping.
-    """
-    # Count number of matches
-    n_matches = 0
-    for _, row in spots_to_cells_df.iterrows():
-        spot_idx = row['spot index']  # current spot index
-        cell_idx = row['cell index']  # matched cell index
-
-        # Get spot matched spot index from cells_to_spots_df
-        spot_idx_matched = cells_to_spots_df.loc[cells_to_spots_df['cell index'] == cell_idx, 'spot index'].values[0]
-
-        # Check if they match
-        if spot_idx == spot_idx_matched:
-            n_matches += 1
-
-    # Compute fraction of spots that match the reverse mapping
-    matches_fraction = n_matches / len(spots_to_cells_df)
-
-    print(f">>> Fraction of spots that match the reverse mapping: {matches_fraction:.2f)}")
-
-    return matches_fraction
+    return true_annotation, pred_annotation
 
 def transfer_annotation(adata_map, adata_st, sc_cluster_label, filter=False, threshold=0.5):
     """
@@ -513,7 +504,7 @@ def transfer_annotation(adata_map, adata_st, sc_cluster_label, filter=False, thr
     # Controls
     if filter and "F_out" not in adata_map.obs.keys():
         raise ValueError("Missing final filter in mapped input data with filter=True.")
-    if sc_cluster_label not in adata_st.obs.columns:
+    if sc_cluster_label not in adata_map.obs.columns:
         raise ValueError("Invalid single cell data cluster/annotation labels.")
 
     # OHE single cell annotations (use tangram.utils function)
@@ -539,6 +530,45 @@ def transfer_annotation(adata_map, adata_st, sc_cluster_label, filter=False, thr
     adata_st.obs["tangram_annotation"] = df_ct_prob.idxmax(axis=1)  # (number_spots,)
 
 
+def annotation_report(true_annotation, pred_annotation):
+    """
+    Generate a full classification report and overall accuracy
+    between ground-truth and predicted annotations.
+
+    Args:
+        true_annotation : array-like of shape (n_samples,)
+        pred_annotation : array-like of shape (n_samples,)
+
+    Returns:
+        annotation_acc : float
+            Overall accuracy
+        report_df : pd.DataFrame
+            Per-class metrics (precision, recall, f1, support)
+            plus macro/weighted averages.
+    """
+    # Overall accuracy
+    annotation_acc = accuracy_score(true_annotation, pred_annotation)
+
+    # Per-class metrics (precision, recall, f1, support)
+    report_dict = classification_report(
+        true_annotation,
+        pred_annotation,
+        output_dict=True,
+        zero_division=0  # avoid division errors for empty classes
+    )
+
+    # Convert to DataFrame
+    report_df = pd.DataFrame(report_dict).transpose()
+
+    # Optional: round values for neat printing
+    report_df = report_df.round(3)
+
+    # Display
+    print(f"\nOverall annotation accuracy: {annotation_acc:.3f}")
+    print("\nPer-class annotation report:")
+    print(report_df.to_string())
+
+    return annotation_acc, report_df
 
 ## FIlTER EVALUATION ##
 
