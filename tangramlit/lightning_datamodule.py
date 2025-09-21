@@ -190,6 +190,8 @@ class AdataPairDataset(Dataset):
         self.train_genes_idx = gene_names_to_indices(gene_names=train_genes_names, adata=adata_st) if train_genes_names is not None else slice(None)
         self.val_genes_idx = gene_names_to_indices(gene_names=val_genes_names, adata=adata_st) if val_genes_names is not None else slice(None)
         # NOTE: When both indices are `None`, it defaults to using all genes for both training and validation
+        # Since this behaviour might be undesirable a warning message is displayed.
+        logging.warning("No validation genes specified. Using all genes for validation.")
 
         # Store metadata
         self.training_genes = training_genes
