@@ -92,80 +92,74 @@ class MyDataModule(pl.LightningDataModule):
 
 
 
-    def setup(self, stage=None):
+    def setup(self, stage: str):
         """
-        Setup datasets for use in dataloaders.
-        This method is called on every GPU separately.
-        Execute after prepare_data() and before train/val_dataloader().
-        Defines dataset based on the current training mode (stage variable).
+            Set up datasets for use in dataloaders.
+            This method is called on every GPU separately.
+            Execute after prepare_data() and before train/val_dataloader().
         """
-        if stage == 'fit' or stage is None:
-            self.train_dataset = AdataPairDataset(self.adata_sc,
-                                                  self.adata_st,
-                                                  mode='train',
-                                                  train_genes_names=self.train_genes_names,
-                                                  )
-        if stage == 'validate' or stage is None:
-            self.val_dataset = AdataPairDataset(self.adata_sc,
-                                                self.adata_st,
-                                                mode='val',
-                                                val_genes_names=self.val_genes_names,
-                                                )
+        self.train_dataset = AdataPairDataset(self.adata_sc,
+                                              self.adata_st,
+                                              genes_names=self.train_genes_names,
+                                              )
+        self.val_dataset = AdataPairDataset(self.adata_sc,
+                                            self.adata_st,
+                                            genes_names=self.val_genes_names,
+                                            )
+        # Warning message if no validation genes are provided
+        if self.val_genes_names is None:
+            logging.warning("No validation genes specified. Using all genes for validation.")
+
 
     def train_dataloader(self):
         """
-        Return a DataLoader for training.
-        For Tangram, we use a single batch containing all data.
+            Return a DataLoader for training.
+            For Tangram, we use a single batch containing all data.
         """
         return DataLoader(
             self.train_dataset,
-            batch_size=1,  # Always use batch_size=1 as each item contains all data
-            shuffle=False,  # No need to shuffle as we have just one batch
-            num_workers=0,  # Process in the main thread
-            pin_memory=True,  # Speed up data transfer to GPU if using CUDA
-            collate_fn=lambda x: x[0]  # Prevent adding batch dimension [1, n_cells/spots, n_genes] => [n_cells/spots, n_genes]
+            batch_size=1,  # always use batch_size=1 as each item contains all data
+            shuffle=False,  # no need to shuffle as we have just one batch
+            num_workers=0,  # process in the main thread
+            pin_memory=True,  # speed up data transfer to GPU if using CUDA
+            collate_fn=lambda x: x[0]  # prevent adding batch dimension [1, n_cells/spots, n_genes] -> [n_cells/spots, n_genes]
         )
 
     def val_dataloader(self):
         """
-        Return a DataLoader for validation.
+            Return a DataLoader for validation.
         """
         return DataLoader(
             self.val_dataset,
-            batch_size=1,  # Always use batch_size=1 as each item contains all data
-            shuffle=False,  # No need to shuffle as we have just one batch
-            num_workers=0,  # Process in the main thread
-            pin_memory=True,  # Speed up data transfer to GPU if using CUDA
-            collate_fn=lambda x: x[0]  # Prevent adding batch dimension [1, n_cells/spots, n_genes] => [n_cells/spots, n_genes]
+            batch_size=1,  # always use batch_size=1 as each item contains all data
+            shuffle=False,  # no need to shuffle as we have just one batch
+            num_workers=0,  # process in the main thread
+            pin_memory=True,  # speed up data transfer to GPU if using CUDA
+            collate_fn=lambda x: x[0]  # prevent adding batch dimension [1, n_cells/spots, n_genes] => [n_cells/spots, n_genes]
         )
 
 
 class AdataPairDataset(Dataset):
     """
-    Dataset class for single-cell and spatial anndata objects.
-    Returns a single batch containing all data, sliced according to the provided names and based on the
-    current mode.
+        Dataset class for single-cell and spatial anndata objects.
+        Returns a single batch containing all data, sliced according to the provided names and based on the current mode.
 
-    Args:
-        adata_sc (AnnData): Single-cell AnnData object.
-        adata_st (AnnData): Spatial AnnData object.
-        train_genes_names (list): List of names of genes to use for training. If None, use all genes shared between adata_sc and adata_st.
-        val_genes_names (list): List of names of genes to use for validation.
-        mode (str): Training mode. Can be 'train' or 'val'. Default is 'train'.
+        Args:
+            adata_sc (AnnData): Single-cell AnnData object.
+            adata_st (AnnData): Spatial AnnData object.
+            genes_names (list): List of gene names to use for training/validation depending on the call.
+                If None, use all genes shared between adata_sc and adata_st.
     """
     def __init__(self,
                  adata_sc,
                  adata_st,
-                 mode='train',
-                 train_genes_names=None,
-                 val_genes_names=None,
+                 genes_names=None,
                  ):
 
         # Get training genes from adata.uns['training_genes'] - defined in prepare_data()
-        assert adata_sc.uns['training_genes'] == adata_st.uns['training_genes'], "Training genes must be the same for single-cell and spatial data."
         training_genes = adata_sc.uns['training_genes']
 
-        ## S matrix (single-cell)
+        # S matrix (single-cell)
         if isinstance(adata_sc.X, csc_matrix) or isinstance(adata_sc.X, csr_matrix):
             self.S = torch.tensor(adata_sc[:, training_genes].X.toarray(), dtype=torch.float32)
         elif isinstance(adata_sc.X, np.ndarray):
@@ -185,13 +179,10 @@ class AdataPairDataset(Dataset):
             logging.error(f"Spatial AnnData X has unrecognized type: {X_type}")
             raise NotImplementedError
 
-        # Store mode and train/val genes indexes retrieved from names
-        self.mode = mode
-        self.train_genes_idx = gene_names_to_indices(gene_names=train_genes_names, adata=adata_st) if train_genes_names is not None else slice(None)
-        self.val_genes_idx = gene_names_to_indices(gene_names=val_genes_names, adata=adata_st) if val_genes_names is not None else slice(None)
-        # NOTE: When both indices are `None`, it defaults to using all genes for both training and validation
-        # Since this behaviour might be undesirable a warning message is displayed.
-        logging.warning("No validation genes specified. Using all genes for validation.")
+        # Get train/val genes indexes from names
+        self.genes_idx = gene_names_to_indices(gene_names=genes_names, adata=adata_st) if genes_names is not None else slice(None)
+        # NOTE: When indices are `None`, it defaults to using all genes for both training and validation
+        # Since this behavior might be undesirable, a warning message is displayed after the AdataPairDataset() call in setup()
 
         # Store metadata
         self.training_genes = training_genes
@@ -204,21 +195,14 @@ class AdataPairDataset(Dataset):
 
     def __getitem__(self, idx):
         """
-        Returns sliced data according to the current mode.
+        Returns sliced S and G tensors according to input indexes (for training or validation).
         """
-        # Return only the relevant slice based on mode
-        if self.mode == 'train':
-            return {
-                'S_train': self.S[:, self.train_genes_idx],
-                'G_train': self.G[:, self.train_genes_idx],
-                'training_genes_number': len(self.train_genes_idx) if not isinstance(self.train_genes_idx, slice) else self.n_genes,
-            }
-        else:  # validation mode
-            return {
-                'S_val': self.S[:, self.val_genes_idx],
-                'G_val': self.G[:, self.val_genes_idx],
-                'validation_genes_number': len(self.val_genes_idx) if not isinstance(self.val_genes_idx, slice) else self.n_genes,
-            }
+        return {
+            'S': self.S[:, self.genes_idx],
+            'G': self.G[:, self.genes_idx],
+            'genes_number': len(self.genes_idx) if not isinstance(self.genes_idx, slice) else self.n_genes,
+        }
+
 
 def gene_names_to_indices(gene_names, adata):
     """
@@ -255,6 +239,5 @@ def gene_names_to_indices(gene_names, adata):
     return indices
 
 
-## Function for spatial data binning ##
-## called in setup ##
+#TODO: Function for spatial data binning, called in setup
 

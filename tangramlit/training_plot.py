@@ -26,8 +26,8 @@ def plot_training_history(adata_map, hyperpams=None, lambda_scale=True, log_scal
     if not lambda_scale and hyperpams is None:
         raise ValueError("Missing hyperparamters for re-scaling.")
 
-    # Retrieve loss terms labels
-    loss_terms_labels = adata_map.uns['training_history'].keys()
+    # Retrieve loss terms labels that are not empty
+    loss_terms_labels = [k for k, v in adata_map.uns['training_history'].items() if v]
 
     # Initiate empty dict containing numpy arrays
     loss_dict = {key: None for key in loss_terms_labels}
@@ -63,8 +63,8 @@ def plot_training_history(adata_map, hyperpams=None, lambda_scale=True, log_scal
     }
     if not lambda_scale:
         for loss_key in (loss_dict.keys() & loss_lambda_map.keys()):
-            if loss_dict[loss_key].any():  # truthy keys only
-                loss_dict[loss_key] = loss_dict[loss_key] / hyperpams[loss_lambda_map[loss_key]]
+            #if loss_dict[loss_key].any():  # truthy keys only
+            loss_dict[loss_key] = loss_dict[loss_key] / hyperpams[loss_lambda_map[loss_key]]
 
     # Create plot
     plt.figure(figsize=(10,20))
@@ -76,12 +76,12 @@ def plot_training_history(adata_map, hyperpams=None, lambda_scale=True, log_scal
         title = title + ' (logscale)'
 
     for curve in loss_dict:
-        if loss_dict[curve].any():  # truthy keys only
-            if log_scale:
-                plt.semilogy(abs(loss_dict[curve]), label=curve)
-            else:
-                plt.plot(loss_dict[curve], label=curve)
-            plt.legend()
+        #if loss_dict[curve].any():  # truthy keys only
+        if log_scale:
+            plt.semilogy(abs(loss_dict[curve]), label=curve)
+        else:
+            plt.plot(loss_dict[curve], label=curve)
+        plt.legend()
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title(title)
@@ -108,6 +108,9 @@ def plot_loss_term(adata_map, loss_key: str, lambda_coeff=None, lambda_scale=Fal
     # Check if coeff is present
     if lambda_scale and lambda_coeff is None:
         raise ValueError("Missing coefficient for scaling.")
+    # Check that history is not empty
+    if not adata_map.uns["training_history"][loss_key]:
+        raise ValueError("Loss term has not been tracked in training.")
 
     # Retrieve curve
     if type(adata_map.uns["training_history"][loss_key][0]) == torch.Tensor and not torch.isnan(

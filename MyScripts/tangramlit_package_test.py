@@ -1,6 +1,9 @@
 # Load cropped datasets
 import anndata as ad
 import numpy as np
+
+from tangramlit import annotation_report
+
 path = "C:/Users/enric/tangram/myDataCropped"
 adata_sc = ad.read_h5ad(path + "/test_sc_crop.h5ad")
 adata_st = ad.read_h5ad(path + "/slice200_norm_reduced.h5ad")
@@ -9,7 +12,7 @@ adata_st = ad.read_h5ad(path + "/slice200_norm_reduced.h5ad")
 import tangramlit as tg
 
 # Set parameters for mapping
-mode = "vanilla"
+mode = "refined"
 target_count = None
 cluster_label = "cluster_labels"
 
@@ -21,15 +24,15 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     adata_st,
     mode=mode,
     target_count=target_count,
-    num_epochs=1000,
+    num_epochs=200,
     lambda_d=1,
-    lambda_g1=1000,
+    lambda_g1=1,
     lambda_g2=0,
     lambda_r=0,
     lambda_count=1,
     lambda_f_reg=1e-5,
     lambda_l2=0,
-    lambda_l1=1e-5,
+    lambda_l1=0,
     random_state=random_state,
     lambda_sparsity_g1=1,
     lambda_neighborhood_g1=1,
@@ -39,29 +42,27 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     lambda_moran=1,
     lambda_geary=1 ,
     )
-
-# Annotation transfer test
-tg.transfer_annotation(adata_map=ad_map_lt, adata_st=adata_st, sc_cluster_label='class_label',
-                       filter=False)
+#Validate
+results = tg.validate_mapping_experiment(mapper, datamodule)
 # Plot loss terms
-#tg.plot_loss_term(adata_map=ad_map_lt, loss_key='entropy_reg')
+tg.plot_loss_term(adata_map=ad_map_lt, loss_key='count_reg')
 tg.plot_training_history(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=True)
-#tg.plot_training_history(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=False)
 
 # Try analysis functions
-#df1 = tg.get_cell_spot_pair(ad_map_lt, filter=True)
-#df2 = tg.get_spot_cell_pair(ad_map_lt, filter=True)
+df1 = tg.get_cell_spot_pair(ad_map_lt, filter=True)
+df2 = tg.get_spot_cell_pair(ad_map_lt, filter=True)
 
-#filt_corr = tg.compute_filter_corr(ad_map_lt, plot=True)
+filt_corr = tg.compute_filter_corr(ad_map_lt, plot=True)
 
 # Shared labels
 labels = set(adata_st.obs['class_label']) & set(adata_sc.obs['class_label'])
 # Accuracy
-acc = tg.compute_annotation_accuracy(ad_map_lt, adata_sc, adata_st,
+true, pred = tg.deterministic_annotation(ad_map_lt, adata_sc, adata_st,
                                sc_cluster_label='class_label', st_cluster_label='class_label',
                                flavour='spot_to_cell', filter=False)
+acc, stats = annotation_report(true, pred)
 
-map_sim = tg.compute_mapped_similarity(ad_map_lt, adata_sc, adata_st, flavour='spot_to_cell', filter=False)
+map_sim = tg.deterministic_mapping_similarity(ad_map_lt, adata_sc, adata_st, flavour='spot_to_cell', filter=False)
 
 
 
@@ -71,8 +72,12 @@ if mode == "filter":
     tg.plot_filter_weights(ad_map_lt, plot_spaghetti=True, plot_envelope=True)
     tg.plot_filter_count(ad_map_lt, target_count=target_count)
 
+# Annotation transfer test
+tg.transfer_annotation(adata_map=ad_map_lt, adata_st=adata_st, sc_cluster_label='class_label',
+                       filter=False)
 
-# Validation
+
+### Validation
 # Get shared genes (case-insensitive)
 sc_genes = {gene.lower(): gene for gene in adata_sc.var_names}
 st_genes = {gene.lower(): gene for gene in adata_st.var_names}
@@ -127,11 +132,11 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
 #Validate
 results = tg.validate_mapping_experiment(mapper, datamodule)
 
-# Test cv
+### CROSS VALIDATION
 cv_results = tg.cross_validate_mapping(adata_sc,
     adata_st,
     mode=mode,
-   k=3,
+    k=3,
    input_genes=shared_genes,
     num_epochs=30,
     lambda_d=1,
