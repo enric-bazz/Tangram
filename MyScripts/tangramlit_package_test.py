@@ -2,8 +2,6 @@
 import anndata as ad
 import numpy as np
 
-from tangramlit import annotation_report
-
 path = "C:/Users/enric/tangram/myDataCropped"
 adata_sc = ad.read_h5ad(path + "/test_sc_crop.h5ad")
 adata_st = ad.read_h5ad(path + "/slice200_norm_reduced.h5ad")
@@ -60,7 +58,7 @@ labels = set(adata_st.obs['class_label']) & set(adata_sc.obs['class_label'])
 true, pred = tg.deterministic_annotation(ad_map_lt, adata_sc, adata_st,
                                sc_cluster_label='class_label', st_cluster_label='class_label',
                                flavour='spot_to_cell', filter=False)
-acc, stats = annotation_report(true, pred)
+acc, stats = tg.annotation_report(true, pred)
 
 map_sim = tg.deterministic_mapping_similarity(ad_map_lt, adata_sc, adata_st, flavour='spot_to_cell', filter=False)
 
