@@ -10,7 +10,7 @@ adata_st = ad.read_h5ad(path + "/slice200_norm_reduced.h5ad")
 import tangramlit as tg
 
 # Set parameters for mapping
-mode = "refined"
+mode = "filter"
 target_count = None
 cluster_label = "cluster_labels"
 
@@ -40,8 +40,13 @@ ad_map_lt, mapper, datamodule = tg.map_cells_to_space(
     lambda_moran=1,
     lambda_geary=1 ,
     )
-#Validate
-results = tg.validate_mapping_experiment(mapper, datamodule)
+
+# sc gene projection
+ad_ge = tg.project_sc_genes_onto_space(ad_map_lt, datamodule)
+df = tg.compare_spatial_gene_exp(ad_ge, datamodule)
+tg.plot_training_scores(df)
+tg.plot_auc_curve(df)
+
 # Plot loss terms
 tg.plot_loss_term(adata_map=ad_map_lt, loss_key='count_reg')
 tg.plot_training_history(adata_map=ad_map_lt, hyperpams=mapper.hparams, log_scale=False, lambda_scale=True)
