@@ -1,15 +1,17 @@
 import logging
 
 import numpy as np
-import pytorch_lightning as pl
 import scanpy as sc
 import squidpy as sq
 import torch
+from pytorch_lightning import LightningDataModule
 from scipy.sparse import csc_matrix, csr_matrix
 from torch.utils.data import Dataset, DataLoader
 
 
-class MyDataModule(pl.LightningDataModule):
+### DataModule Class ###
+
+class MyDataModule(LightningDataModule):
     """
         Lightning DataModule for Tangram mapping.
     """
@@ -90,7 +92,13 @@ class MyDataModule(pl.LightningDataModule):
         self.adata_sc.uns["training_genes"] = genes
         self.adata_st.uns["training_genes"] = genes
 
+        # Extra preprocessing
+        # Gene sparsity annotation
+        annotate_gene_sparsity(self.adata_sc)
+        annotate_gene_sparsity(self.adata_st)
 
+
+        # TODO ON BLADE ENV: integrate all gene annotation procedures tried in the training genes notebook
 
     def setup(self, stage: str):
         """
@@ -138,6 +146,7 @@ class MyDataModule(pl.LightningDataModule):
             collate_fn=lambda x: x[0]  # prevent adding batch dimension [1, n_cells/spots, n_genes] => [n_cells/spots, n_genes]
         )
 
+### Dataset Class ###
 
 class AdataPairDataset(Dataset):
     """
@@ -203,6 +212,7 @@ class AdataPairDataset(Dataset):
             'genes_number': len(self.genes_idx) if not isinstance(self.genes_idx, slice) else self.n_genes,
         }
 
+### Utilities ###
 
 def gene_names_to_indices(gene_names, adata):
     """
@@ -237,6 +247,22 @@ def gene_names_to_indices(gene_names, adata):
         logging.warning(f"The following train/val input genes were removed with preprocessing: {missing_genes}.")
 
     return indices
+
+def annotate_gene_sparsity(adata: sc.AnnData,):
+    """
+        Annotates gene sparsity in the given AnnData object.
+        Update the given anndata by creating a `var` "sparsity" field with gene_sparsity (1 - % non-zero observations).
+
+        Args:
+            adata (AnnData): single cell or spatial data.
+
+        Returns:
+            None
+        """
+    arr = (adata.X != 0).mean(axis=0)
+    adata.var["sparsity"] = 1 - (arr.A1 if hasattr(arr, "A1") else np.ravel(arr))
+    #adata.var["sparsity"] = 1 - (adata.X != 0).mean(axis=0).A1  # .A1 flattens sparse matrix to 1D dense array
+
 
 
 #TODO: Function for spatial data binning, called in setup
