@@ -1,7 +1,10 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import torch
 from matplotlib.patches import Patch
+
+from . import validation_metrics as vm
 
 
 def plot_training_history(adata_map, hyperpams=None, lambda_scale=True, log_scale=False):
@@ -356,4 +359,95 @@ def traffic_light_plot(genes_list, values_sc=None, values_sp=None, figsize=(10, 
     plt.tight_layout()
     plt.show()
 
-    # TODO: pass masks as pandas Series and use indexing for intersection --> use utils.get_atcnhed_genes()
+    # TODO: pass masks as pandas Series and use indexing for intersection --> use utils.get_matched_genes()
+
+def plot_training_scores(df, bins=10, alpha=0.7):
+    """
+        Plots the 4-panel training diagnosis plot
+
+        Args:
+            adata_map (AnnData):
+            bins (int or string): Optional. Default is 10.
+            alpha (float): Optional. Ranges from 0-1, and controls the opacity. Default is 0.7.
+
+        Returns:
+            None
+    """
+    fig, axs = plt.subplots(1, 4, figsize=(12, 3), sharey=True)
+    #df = adata_map.uns["train_genes_df"]
+    axs_f = axs.flatten()
+
+    # set limits for axis
+    axs_f[0].set_ylim([0.0, 1.0])
+    for i in range(1, len(axs_f)):
+        axs_f[i].set_xlim([0.0, 1.0])
+        axs_f[i].set_ylim([0.0, 1.0])
+
+    #     axs_f[0].set_title('Training scores for single genes')
+    sns.histplot(data=df, y="score", bins=bins, ax=axs_f[0], color="coral")
+
+    axs_f[1].set_title("score vs sparsity (single cells)")
+    sns.scatterplot(
+        data=df,
+        y="score",
+        x="sparsity_sc",
+        ax=axs_f[1],
+        alpha=alpha,
+        color="coral",
+    )
+
+    axs_f[2].set_title("score vs sparsity (spatial)")
+    sns.scatterplot(
+        data=df,
+        y="score",
+        x="sparsity_st",
+        ax=axs_f[2],
+        alpha=alpha,
+        color="coral",
+    )
+
+    axs_f[3].set_title("score vs sparsity (sp - sc)")
+    sns.scatterplot(
+        data=df,
+        y="score",
+        x="sparsity_diff",
+        ax=axs_f[3],
+        alpha=alpha,
+        color="coral",
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+def plot_auc_curve(df_all_genes, test_genes=None):
+    """
+            Plots auc curve which is used to evaluate model performance.
+
+        Args:
+            df_all_genes (Pandas dataframe): returned by compare_spatial_gene_exp(adata_ge, adata_sp);
+            test_genes (list): list of test genes, if not given, test_genes will be set to genes where 'is_training' field is False
+
+        Returns:
+            None
+        """
+    auc_score, ((pol_xs, pol_ys), (xs, ys)) = vm.poly2_auc(df_all_genes['score'], df_all_genes['sparsity_st'])
+
+    fig = plt.figure()
+    plt.figure(figsize=(6, 5))
+
+    plt.plot(pol_xs, pol_ys, c='r')
+    sns.scatterplot(x=xs, y=ys, alpha=0.5, edgecolors='face')
+
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.0])
+    plt.gca().set_aspect(.5)
+    plt.xlabel('score')
+    plt.ylabel('spatial sparsity')
+    plt.tick_params(axis='both', labelsize=8)
+    plt.title('Prediction on test transcriptome')
+
+    textstr = 'auc_score={}'.format(np.round(auc_score, 3))
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.3)
+    # place a text box in upper left in axes coords
+    plt.text(0.03, 0.1, textstr, fontsize=11, verticalalignment='top', bbox=props)
+    plt.show()
