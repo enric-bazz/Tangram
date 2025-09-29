@@ -27,8 +27,9 @@ def poly2_auc(gv_scores, gene_sparsity, pol_deg=2):
 
     Returns
     -------
-    auc_score : float
-        Area under the polynomial curve over x in [0,1].
+    auc_score (float): Area under the polynomial curve over x in [0,1].
+    auc_coordinates (tuple): AUC fitted coordinates and raw coordinates (test_score vs. sparsity_sp coordinates)
+
     """
 
     # Convert to numpy arrays
@@ -60,7 +61,11 @@ def poly2_auc(gv_scores, gene_sparsity, pol_deg=2):
 
     # Compute AUC
     auc_score = auc(pol_xs, pol_ys)
-    return float(auc_score)
+
+    # Coordinates
+    auc_coordinates = ((pol_xs, pol_ys), (xs, ys))
+
+    return float(auc_score), auc_coordinates
 
 
 
