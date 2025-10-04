@@ -58,3 +58,6 @@ mytangram.validation_utils
 # ingnore tutorials
 tutorial_tangram_with_squidpy.ipynb
 tutorial_tangram_without_squidpy.ipynb
+
+# vscode project
+.vscode
