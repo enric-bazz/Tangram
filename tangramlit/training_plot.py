@@ -432,7 +432,6 @@ def plot_auc_curve(df_all_genes, test_genes=None):
         """
     auc_score, ((pol_xs, pol_ys), (xs, ys)) = vm.poly2_auc(df_all_genes['score'], df_all_genes['sparsity_st'])
 
-    fig = plt.figure()
     plt.figure(figsize=(6, 5))
 
     plt.plot(pol_xs, pol_ys, c='r')
