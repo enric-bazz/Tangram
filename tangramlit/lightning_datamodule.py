@@ -58,45 +58,52 @@ class MyDataModule(LightningDataModule):
 
     def prepare_data(self):
         """
-        Takes anndata objects and prepares them for mapping.
-        Executed before setup() in the trainer.fit call (?).
+        Takes anndata objects and prepares them for mapping. It does not slice/subset the datasets on the training genes.
+        By default, the training genes set is made of the shared genes that are expressed in at least one obs in both datasets.
+        Executed before setup() in the trainer.fit call.
         """
-
         # Preprocess data - define adata.uns['training_genes'] - originally implemented in tg.mapping_utils.pp_adatas()
         logging.info("Preprocessing data...")
-        # 1. Remove genes with zero counts
-        self.adata_sc = self.adata_sc[:, np.array(self.adata_sc.X.sum(axis=0)).flatten() > 0]
-        self.adata_st = self.adata_st[:, np.array(self.adata_st.X.sum(axis=0)).flatten() > 0]
 
-        # 2. Remove all-zero-valued genes with scanpy utility
-        sc.pp.filter_genes(self.adata_sc, min_cells=1)
-        sc.pp.filter_genes(self.adata_st, min_cells=1)
-
-        # 3. Put all var indexes to lower case to align
+        # 1. Put all var indexes to lower case to align
         self.adata_sc.var.index = [g.lower() for g in self.adata_sc.var.index]
         self.adata_st.var.index = [g.lower() for g in self.adata_st.var.index]
 
-        # 4. Make genes unique
+        # 2. Make genes unique
         self.adata_sc.var_names_make_unique()
         self.adata_st.var_names_make_unique()
 
-        # 5. Define training genes as intersection of input training genes and anndata var indexes
-        if self.input_genes is not None:
-            genes = list(set(self.input_genes) & set(self.adata_sc.var.index) & set(self.adata_st.var.index))
-            logging.info(f"Using {len(genes)} training genes provided by user.")
-        else:
-            genes = list(set(self.adata_sc.var.index) & set(self.adata_st.var.index))
-        logging.info(f"Using {len(genes)} shared marker genes.")
-
-        # 6. Store genes in adata.uns['training_genes']
-        self.adata_sc.uns["training_genes"] = genes
-        self.adata_st.uns["training_genes"] = genes
-
-        # Extra preprocessing
-        # Gene sparsity annotation
+        # 3. Annotate sparsity on all genes
         annotate_gene_sparsity(self.adata_sc)
         annotate_gene_sparsity(self.adata_st)
 
+        # 4. Define shared genes set and annotate in adata.uns['overlap_genes']
+        overlap_genes = set(self.adata_sc.var.index) & set(self.adata_st.var.index)
+        self.adata_sc.uns['overlap_genes'] = list(overlap_genes)
+        self.adata_st.uns['overlap_genes'] = list(overlap_genes)
+
+        # 5. Filter all-zero-valued genes and get filtered overlap (candidate training genes)
+        # sc.pp.filter_genes() returns tuple containing: (a boolean array indicating which genes were filtered out, the number of cells per gene)
+        filtered_genes_sc, _ = sc.pp.filter_genes(self.adata_sc, min_cells=1, inplace=False)  # skip n_cells
+        filtered_genes_st, _ = sc.pp.filter_genes(self.adata_st, min_cells=1, inplace=False)  # skip n_cells
+        # Get gene names by masking the adata with boolean arrays
+        filtered_genes_sc = self.adata_sc[:, filtered_genes_sc].var_names
+        filtered_genes_st = self.adata_st[:, filtered_genes_st].var_names
+        overlap_filtered_genes = set(filtered_genes_sc) & set(filtered_genes_st)
+
+        # 6. Define training genes as intersection of input training genes and overlapping filtered genes
+        if self.input_genes is not None:
+            training_genes = list(set(self.input_genes) & overlap_filtered_genes)
+            logging.info(f"Using {len(training_genes)} training genes provided by user.")
+        else:
+            training_genes = list(overlap_filtered_genes)
+        logging.info(f"Using {len(training_genes)} shared marker genes.")
+
+        # 7. Annotate training genes set in adata.uns['training_genes'] and adata.var['is_training']
+        self.adata_sc.uns["training_genes"] = training_genes
+        self.adata_st.uns["training_genes"] = training_genes
+        self.adata_sc.var["is_training"] = self.adata_sc.var.index.isin(training_genes)
+        self.adata_st.var["is_training"] = self.adata_st.var.index.isin(training_genes)
 
         # TODO ON BLADE ENV: integrate all gene annotation procedures tried in the training genes notebook
 
@@ -194,9 +201,9 @@ class AdataPairDataset(Dataset):
         # Since this behavior might be undesirable, a warning message is displayed after the AdataPairDataset() call in setup()
 
         # Store metadata
-        self.training_genes = training_genes
-        self.n_cells = self.S.shape[0]
-        self.n_spots = self.G.shape[0]
+        #self.training_genes = training_genes
+        #self.n_cells = self.S.shape[0]
+        #self.n_spots = self.G.shape[0]
         self.n_genes = len(training_genes)
 
     def __len__(self):
@@ -259,9 +266,8 @@ def annotate_gene_sparsity(adata: sc.AnnData,):
         Returns:
             None
         """
-    arr = (adata.X != 0).mean(axis=0)
-    adata.var["sparsity"] = 1 - (arr.A1 if hasattr(arr, "A1") else np.ravel(arr))
-    #adata.var["sparsity"] = 1 - (adata.X != 0).mean(axis=0).A1  # .A1 flattens sparse matrix to 1D dense array
+    arr = (adata.X != 0).mean(axis=0)  # gene-sparsity array
+    adata.var["sparsity"] = 1 - (arr.A1 if hasattr(arr, "A1") else np.ravel(arr))  # .A1 flattens sparse matrix to 1D dense array
 
 
 
