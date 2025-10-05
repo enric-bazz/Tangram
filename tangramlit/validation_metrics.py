@@ -8,11 +8,13 @@ import scipy.stats as st
 import sklearn
 import torch
 from sklearn.metrics import auc
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
-def poly2_auc(gv_scores, gene_sparsity, pol_deg=2):
+def poly2_auc(gv_scores, gene_sparsity, pol_deg=2, plot_auc=False):
     """
-    Compute Tangram most important evalutaion metric.
+    Compute Tangram most important evaluation metric.
     Fit a 2nd-degree polynomial between gv_scores and gene_sparsity,
     clip to [0,1], and return the area under the curve (AUC).
 
@@ -24,6 +26,7 @@ def poly2_auc(gv_scores, gene_sparsity, pol_deg=2):
         Gene sparsity values per gene (0-1).
     pol_deg : int
         Degree of polynomial (default 2).
+    plot_auc (bool): Wether to plot the polynomial fit in the (sparsity, score) plane or not. Default is False.
 
     Returns
     -------
@@ -64,9 +67,30 @@ def poly2_auc(gv_scores, gene_sparsity, pol_deg=2):
     # Coordinates
     auc_coordinates = ((pol_xs, pol_ys), (xs, ys))
 
+    if plot_auc:
+        fig = plt.figure()
+        plt.figure(figsize=(6, 5))
+
+        plt.plot(pol_xs, pol_ys, c='r')
+        sns.scatterplot(x=xs, y=ys, alpha=0.5, edgecolors='face')
+
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.0])
+        plt.gca().set_aspect(.5)
+        plt.xlabel('score')
+        plt.ylabel('spatial sparsity')
+        plt.tick_params(axis='both', labelsize=8)
+        plt.title('Prediction on test transcriptome')
+
+        textstr = 'auc_score={}'.format(np.round(auc_score, 3))
+        props = dict(boxstyle='round', facecolor='wheat', alpha=0.3)
+        # place a text box in upper left in axes coords
+        plt.text(0.03, 0.1, textstr, fontsize=11, verticalalignment='top', bbox=props)
+        plt.show()
+
     return float(auc_score), auc_coordinates
 
-
+# TODO: add plot_auc arg to plot auc in the mapper class if self.trainer.state.fn == 'validate', remove coord return
 
 """
 Validation metrics for vanilla Tangram benchmarking . The metrics and scaling procedures are taken from the following paper:
