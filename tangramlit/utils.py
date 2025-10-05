@@ -332,15 +332,14 @@ def deconvolve_cell_annotations(adata_sp, filter_cell_annotation=None):
     return adata_segment
 
 
-def project_genes(adata_map, adata_sc, cluster_label=None, scale=True):
+def project_genes(adata_map, adata_sc):
     """
     Transfer gene expression from the single cell onto space.
 
     Args:
-        adata_map (AnnData): single cell data
-        adata_sp (AnnData): gene spatial data
-        cluster_label (AnnData): Optional. Should be consistent with the 'cluster_label' argument passed to `map_cells_to_space` function.
-        scale (bool): Optional. Should be consistent with the 'scale' argument passed to `map_cells_to_space` function.
+        adata_map (AnnData): adata with mapping matrix
+        adata_sc (AnnData): gene sc data
+.
 
     Returns:
         AnnData: spot-by-gene AnnData containing spatial gene expression from the single cell data.
@@ -354,9 +353,6 @@ def project_genes(adata_map, adata_sc, cluster_label=None, scale=True):
 
     # remove all-zero-valued genes
     sc.pp.filter_genes(adata_sc, min_cells=1)
-
-    if cluster_label:
-        adata_sc = mu.adata_to_cluster_expression(adata_sc, cluster_label, scale=scale)
 
     if not adata_map.obs.index.equals(adata_sc.obs.index):
         raise ValueError("The two AnnDatas need to have same `obs` index.")
@@ -389,15 +385,15 @@ def compare_spatial_geneexp(adata_ge, adata_sp, adata_sc=None, genes=None):
     logger_root.disabled = True
 
     # Check if training_genes/overlap_genes key exist/is valid in adatas.uns
-    if not set(["training_genes", "overlap_genes"]).issubset(set(adata_sp.uns.keys())):
-        raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
+    #if not set(["training_genes", "overlap_genes"]).issubset(set(adata_sp.uns.keys())):
+     #   raise ValueError("Missing tangram parameters. Run `pp_adatas()`.")
 
-    if not set(["training_genes", "overlap_genes"]).issubset(set(adata_ge.uns.keys())):
-        raise ValueError(
-            "Missing tangram parameters. Use `project_genes()` to get adata_ge."
-        )
+    #if not set(["training_genes", "overlap_genes"]).issubset(set(adata_ge.uns.keys())):
+     #   raise ValueError(
+      #      "Missing tangram parameters. Use `project_genes()` to get adata_ge."
+       # )
 
-    assert list(adata_sp.uns["overlap_genes"]) == list(adata_ge.uns["overlap_genes"])
+    #assert list(adata_sp.uns["overlap_genes"]) == list(adata_ge.uns["overlap_genes"])
 
     if genes is None:
         overlap_genes = adata_ge.uns["overlap_genes"]
