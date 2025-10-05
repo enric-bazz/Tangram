@@ -40,24 +40,34 @@ share/python-wheels/
 .installed.cfg
 *.egg
 
-# ignore coverage report
+# coverage report
 *.coverage
 *.coverage.*
 
+# venv folder
 .venv/
 venv/
 
-# Folders to ignore
+# dev data
 myDataCropped/
+
+# lightning/tensorborad logs
 MyScripts/lightning_logs
+MyScripts/tb_logs
+tb_logs
 
 # ignore as long as unutilized
 mytangram/validation_utils.py
 mytangram.validation_utils
 
-# ingnore tutorials
+# tutorials
 tutorial_tangram_with_squidpy.ipynb
 tutorial_tangram_without_squidpy.ipynb
 
 # vscode project
 .vscode
+
+# requirements files (atm)
+requirements.txt
+# exception
+!docs/requirements.txt
