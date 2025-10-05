@@ -13,6 +13,8 @@ dependencies = [
     "spatialdata>=0.3.0",
     "squidpy>=1.6.5",
     "tangram-sc>=1.0.4",
+    "tensorboard>=2.20.0",
+    "tqdm>=4.67.1",
     "xarray-dataclasses>=0.4.0",
 ]
 
