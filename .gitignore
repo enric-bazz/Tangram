@@ -46,15 +46,3 @@ share/python-wheels/
 
 # venv folder
 .venv/
-
-# tutorials
-tutorial_tangram_with_squidpy.ipynb
-tutorial_tangram_without_squidpy.ipynb
-
-# vscode project
-.vscode
-
-# requirements files (atm)
-requirements.txt
-# exception
-!docs/requirements.txt
