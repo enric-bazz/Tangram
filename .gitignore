@@ -46,19 +46,6 @@ share/python-wheels/
 
 # venv folder
 .venv/
-venv/
-
-# dev data
-myDataCropped/
-
-# lightning/tensorborad logs
-MyScripts/lightning_logs
-MyScripts/tb_logs
-tb_logs
-
-# ignore as long as unutilized
-mytangram/validation_utils.py
-mytangram.validation_utils
 
 # tutorials
 tutorial_tangram_with_squidpy.ipynb
