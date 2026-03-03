@@ -140,10 +140,10 @@ def project_cell_annotations(
         Update spatial Anndata by creating `obsm` `tangram_ct_pred` field with a dataframe with spatial prediction for each annotation (number_spots, number_annotations) 
     """
 
-    df = one_hot_encoding(adata_map.obs[annotation])
     if "F_out" in adata_map.obs.keys():
-        df_ct_prob = adata_map[adata_map.obs["F_out"] > threshold]
+        adata_map = adata_map[adata_map.obs["F_out"] > threshold]
 
+    df = one_hot_encoding(adata_map.obs[annotation])
     df_ct_prob = adata_map.X.T @ df
     df_ct_prob.index = adata_map.var.index
 
@@ -340,8 +340,8 @@ def project_genes(adata_map, adata_sc, cluster_label=None, scale=True):
     Transfer gene expression from the single cell onto space.
 
     Args:
-        adata_map (AnnData): single cell data
-        adata_sp (AnnData): gene spatial data
+        adata_map (AnnData): cell-by-spot AnnData returned by `train` function.
+        adata_sc (AnnData): single cell data.
         cluster_label (AnnData): Optional. Should be consistent with the 'cluster_label' argument passed to `map_cells_to_space` function.
         scale (bool): Optional. Should be consistent with the 'scale' argument passed to `map_cells_to_space` function.
 
