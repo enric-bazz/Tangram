@@ -618,7 +618,7 @@ def cross_val(
 
         test_df = df_g[df_g.index.isin(test_genes)]
         test_score = df_g.loc[test_genes]["score"].mean()
-        train_score = np.float(list(adata_map.uns["training_history"]["main_loss"])[-1])
+        train_score = float(list(adata_map.uns["training_history"]["main_loss"])[-1])
 
         # output avg score
         test_genes_list.append(test_genes)
