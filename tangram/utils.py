@@ -1,22 +1,21 @@
 """
     Utility functions to pre- and post-process data for Tangram.
 """
+import gzip
+import logging
+import pickle
+import warnings
+from collections import defaultdict
+
 import numpy as np
 import pandas as pd
-from collections import defaultdict
-import gzip
-import pickle
 import scanpy as sc
-from tqdm import tqdm
-from sklearn.model_selection import LeaveOneOut
+from sklearn.metrics import auc
 from sklearn.model_selection import KFold
+from sklearn.model_selection import LeaveOneOut
+from tqdm import tqdm
 
 from . import mapping_utils as mu
-
-import logging
-import warnings
-
-from sklearn.metrics import auc
 
 warnings.filterwarnings("ignore")
 logger_ann = logging.getLogger("anndata")
@@ -193,7 +192,7 @@ def create_segment_cell_df(adata_sp):
     )
 
     adata_sp.uns["tangram_cell_segmentation"] = segmentation_df
-    adata_sp.obsm["tangram_spot_centroids"] = centroids["centroids_idx"]
+    adata_sp.obsm["tangram_spot_centroids"] = centroids["centroids_idx"].values
     logging.info(
         f"cell segmentation dataframe is saved in `uns` `tangram_cell_segmentation` of the spatial AnnData."
     )
