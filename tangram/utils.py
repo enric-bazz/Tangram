@@ -146,7 +146,7 @@ def project_cell_annotations(
     df_ct_prob = adata_map.X.T @ df
     df_ct_prob.index = adata_map.var.index
 
-    adata_sp.obsm["tangram_ct_pred"] = df_ct_prob
+    adata_sp.obsm["tangram_ct_pred"] = df_ct_prob.values
     logging.info(
         f"spatial prediction dataframe is saved in `obsm` `tangram_ct_pred` of the spatial AnnData."
     )
